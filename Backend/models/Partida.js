@@ -7,12 +7,16 @@ const Partida = sequelize.define('Partida', {
     primaryKey: true,
     autoIncrement: true
   },
+  usuarioId: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
   username: {
     type: DataTypes.STRING,
-    allowNull: false
+    allowNull: true // Campo heredado para conservar compatibilidad con registros antiguos.
   },
   stage: {
-    type: DataTypes.JSON, // <-- Soporte nativo para tu estructura anidada
+    type: DataTypes.JSON, // Soporte nativo para la estructura anidada de niveles y habilidades.
     allowNull: false
   }
 });
