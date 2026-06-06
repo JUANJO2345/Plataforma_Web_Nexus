@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function UserManagement() {
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Estados para el Formulario (Crear / Editar)
+  // Estados para el formulario de creación y edición.
   const [isEditing, setIsEditing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [formData, setFormData] = useState({ correo: '', contrasena: '', nombre: '', rol: 'user' });
 
-  // Cargar usuarios al montar el componente
+  // Cargar usuarios al montar el componente.
   const fetchUsuarios = async () => {
     try {
       setLoading(true);
@@ -27,15 +27,19 @@ export default function UserManagement() {
   };
 
   useEffect(() => {
-    fetchUsuarios();
+    const loadInitialUsers = async () => {
+      await fetchUsuarios();
+    };
+
+    loadInitialUsers();
   }, []);
 
-  // Manejar cambios en los inputs
+  // Manejar cambios en los inputs.
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // Crear o Editar Usuario
+  // Crear o editar usuario.
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.correo || (!isEditing && !formData.contrasena)) {
@@ -48,7 +52,7 @@ export default function UserManagement() {
       const method = isEditing ? 'PUT' : 'POST';
       
       const payload = { ...formData };
-      // Si estamos editando y dejaron la clave vacía, la eliminamos para no sobreescribir con texto vacío
+      // Si estamos editando y dejaron la clave vacía, se elimina para no sobrescribirla.
       if (isEditing && !payload.contrasena) delete payload.contrasena;
 
       const res = await fetch(url, {
@@ -59,7 +63,7 @@ export default function UserManagement() {
 
       if (!res.ok) throw new Error('Fallo en la escritura de base de datos.');
 
-      // Limpiar formulario y recargar lista
+      // Limpiar formulario y recargar lista.
       setFormData({ correo: '', contrasena: '', nombre: '', rol: 'user' });
       setIsEditing(false);
       setSelectedId(null);
@@ -69,7 +73,7 @@ export default function UserManagement() {
     }
   };
 
-  // Preparar la interfaz para editar
+  // Preparar la interfaz para editar.
   const handleEditClick = (usuario) => {
     setIsEditing(true);
     setSelectedId(usuario.id);
@@ -81,7 +85,7 @@ export default function UserManagement() {
     });
   };
 
-  // Eliminar Usuario
+  // Eliminar usuario.
   const handleDelete = async (id) => {
     if (!confirm('¿Seguro que deseas desvincular a este operador de la red central?')) return;
 
@@ -97,7 +101,7 @@ export default function UserManagement() {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
       
-      {/* Columna Izquierda: Tabla de Operadores */}
+      {/* Columna izquierda: tabla de operadores */}
       <div className="xl:col-span-2 border border-primary/30 bg-surface-container-low/40 p-6 backdrop-blur-md relative overflow-hidden shadow-[0_0_15px_rgba(0,220,230,0.02)]">
         <h3 className="font-mono-label text-primary text-[12px] font-bold mb-4 uppercase tracking-wider">// NETWORK_OPERATORS_INDEX</h3>
         
@@ -137,13 +141,13 @@ export default function UserManagement() {
                         onClick={() => handleEditClick(u)}
                         className="px-2 py-1 border border-primary/40 text-primary text-[10px] uppercase hover:bg-primary hover:text-black transition-all cursor-pointer"
                       >
-                        Edit
+                        Editar
                       </button>
                       <button 
                         onClick={() => handleDelete(u.id)}
                         className="px-2 py-1 border border-error/40 text-error text-[10px] uppercase hover:bg-error hover:text-white transition-all cursor-pointer"
                       >
-                        Purge
+                        Eliminar
                       </button>
                     </td>
                   </tr>
@@ -154,7 +158,7 @@ export default function UserManagement() {
         )}
       </div>
 
-      {/* Columna Derecha: Formulario Inserción / Edición */}
+      {/* Columna derecha: formulario de inserción y edición */}
       <div className="border border-secondary/30 bg-surface-container-low/40 p-6 backdrop-blur-md relative shadow-[0_0_15px_rgba(166,226,46,0.02)]">
         <h3 className="font-mono-label text-secondary text-[12px] font-bold mb-4 uppercase tracking-wider">
           {isEditing ? '// UPDATE_OPERATOR_SIGNATURE' : '// REGISTER_NEW_NODE'}
@@ -194,8 +198,8 @@ export default function UserManagement() {
               onChange={handleChange}
               className="w-full bg-surface-container-high/60 border border-secondary/20 p-2 text-on-surface focus:outline-none focus:border-secondary transition-colors"
             >
-              <option value="user">user — Operador</option>
-              <option value="admin">admin — Administrador</option>
+              <option value="user">user - Operador</option>
+              <option value="admin">admin - Administrador</option>
             </select>
           </div>
 
@@ -208,7 +212,7 @@ export default function UserManagement() {
               name="contrasena"
               value={formData.contrasena}
               onChange={handleChange}
-              placeholder="••••••••"
+              placeholder="********"
               className="w-full bg-surface-container-high/60 border border-secondary/20 p-2 text-on-surface focus:outline-none focus:border-secondary transition-colors"
               required={!isEditing}
             />
@@ -231,7 +235,7 @@ export default function UserManagement() {
                 }}
                 className="px-3 py-3 border border-on-surface-variant/30 text-on-surface-variant uppercase hover:bg-surface-container transition-all cursor-pointer"
               >
-                Cancel
+                Cancelar
               </button>
             )}
           </div>

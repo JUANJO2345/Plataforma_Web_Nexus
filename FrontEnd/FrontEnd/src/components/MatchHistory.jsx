@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function MatchHistory() {
   const [partidas, setPartidas] = useState([]);
@@ -9,7 +9,7 @@ export default function MatchHistory() {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   
-  // 🎛️ Estado maestro: contiene la telemetría individual de los 4 niveles para las 4 zonas
+  // Estado maestro: contiene la telemetría individual de los 4 niveles para las 4 zonas.
   const [formData, setFormData] = useState({
     username: '',
     // Abstracción (Niveles 1 al 4)
@@ -53,7 +53,13 @@ export default function MatchHistory() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    const loadInitialData = async () => {
+      await fetchData();
+    };
+
+    loadInitialData();
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -66,7 +72,7 @@ export default function MatchHistory() {
       return;
     }
 
-    // Estructuramos el payload mapeando los 4 niveles de cada zona por separado
+    // Estructuramos el payload mapeando los 4 niveles de cada zona por separado.
     const stagePayload = {
       abstraccion: {
         n1: { puntaje: parseInt(formData.abs_n1_pts), tiempo_seg: parseInt(formData.abs_n1_time) },
@@ -106,7 +112,7 @@ export default function MatchHistory() {
 
       if (!res.ok) throw new Error('Fallo en la inyección de la telemetría.');
 
-      // Limpieza de estado
+      // Limpieza de estado.
       resetForm();
       fetchData();
     } catch (err) {
@@ -163,10 +169,10 @@ export default function MatchHistory() {
     } catch (err) { alert(err.message); }
   };
 
-  // Renderizador de filas de niveles completados en la tabla general
+  // Renderizador de filas de niveles completados en la tabla general.
   const renderResumenZona = (label, color, data) => {
     if (!data) return null;
-    const activos = Object.entries(data).filter(([_, v]) => v.puntaje > 0 || v.tiempo_seg > 0);
+    const activos = Object.entries(data).filter(([, v]) => v.puntaje > 0 || v.tiempo_seg > 0);
     if (activos.length === 0) return <div><span className={color}>{label}:</span> <span className="opacity-30 italic">No activity</span></div>;
     
     return (
@@ -174,14 +180,14 @@ export default function MatchHistory() {
         <span className={color}><b className="uppercase">{label}:</b></span>
         <div className="pl-3 grid grid-cols-2 gap-x-2 text-[10px] text-on-surface-variant/80">
           {activos.map(([niv, v]) => (
-            <div key={niv}>• {niv.toUpperCase()}: {v.puntaje}pts / {v.tiempo_seg}s</div>
+            <div key={niv}>{niv.toUpperCase()}: {v.puntaje}pts / {v.tiempo_seg}s</div>
           ))}
         </div>
       </div>
     );
   };
 
-  // Renderizador de campos del formulario para un nivel específico
+  // Renderizador de campos del formulario para un nivel específico.
   const renderInputsNivel = (prefix, labelNivel) => (
     <div className="bg-surface-container/30 p-2 border-l-2 border-secondary/20 space-y-1">
       <div className="text-[10px] uppercase text-on-surface font-bold">{labelNivel}</div>
@@ -201,10 +207,16 @@ export default function MatchHistory() {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
       
-      {/* SECCIÓN TABLA LOGS */}
+      {/* Sección de tabla de registros */}
       <div className="xl:col-span-2 border border-primary/30 bg-surface-container-low/40 p-6 backdrop-blur-md relative shadow-[0_0_15px_rgba(0,220,230,0.02)]">
         <h3 className="font-mono-label text-primary text-[12px] font-bold mb-4 uppercase tracking-wider">// MATRIX_TIMELINE_STREAMS</h3>
         
+        {error && (
+          <div className="p-3 mb-4 border border-error/30 bg-error-container/10 font-mono-label text-[11px] text-on-error">
+            [!] {error}
+          </div>
+        )}
+
         {loading ? (
           <div className="font-mono-label text-on-surface-variant animate-pulse text-[12px] py-4">&gt; DECRYPTING_TELEMETRY...</div>
         ) : (
@@ -235,8 +247,8 @@ export default function MatchHistory() {
                           {renderResumenZona('Patrones', 'text-pink-400', s.reconocimiento_patrones)}
                         </td>
                         <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
-                          <button onClick={() => handleEditClick(p)} className="px-2 py-1 border border-primary/40 text-primary text-[10px] hover:bg-primary hover:text-black transition-all cursor-pointer">Modify</button>
-                          <button onClick={() => handleDelete(p.id)} className="px-2 py-1 border border-error/40 text-error text-[10px] hover:bg-error hover:text-white transition-all cursor-pointer">Purge</button>
+                          <button onClick={() => handleEditClick(p)} className="px-2 py-1 border border-primary/40 text-primary text-[10px] hover:bg-primary hover:text-black transition-all cursor-pointer">Editar</button>
+                          <button onClick={() => handleDelete(p.id)} className="px-2 py-1 border border-error/40 text-error text-[10px] hover:bg-error hover:text-white transition-all cursor-pointer">Eliminar</button>
                         </td>
                       </tr>
                     );
@@ -248,7 +260,7 @@ export default function MatchHistory() {
         )}
       </div>
 
-      {/* SECCIÓN FORMULARIO ULTRA-DETALLADO */}
+      {/* Sección de formulario detallado */}
       <div className="border border-secondary/30 bg-surface-container-low/40 p-6 backdrop-blur-md relative h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar shadow-[0_0_15px_rgba(166,226,46,0.02)]">
         <h3 className="font-mono-label text-secondary text-[12px] font-bold mb-4 uppercase tracking-wider">
           {isEditing ? '// MULTILEVEL_OVERRIDE' : '// MULTILEVEL_INJECTION'}
@@ -313,7 +325,7 @@ export default function MatchHistory() {
               {isEditing ? 'COMMIT_OVERRIDE' : 'INJECT_TIMELINES'}
             </button>
             {isEditing && (
-              <button type="button" onClick={resetForm} className="px-3 py-3 border border-on-surface-variant/30 text-on-surface-variant uppercase hover:bg-surface-container cursor-pointer">Abort</button>
+              <button type="button" onClick={resetForm} className="px-3 py-3 border border-on-surface-variant/30 text-on-surface-variant uppercase hover:bg-surface-container cursor-pointer">Cancelar</button>
             )}
           </div>
         </form>

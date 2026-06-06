@@ -1,21 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import MatchHistory from './components/MatchHistory';
 import DashboardHome from './components/DashboardHome';
 import UserDashboard from './components/UserDashboard';
 import UserManagement from './components/UserManagement';
 import AuthScreen from './components/AuthScreen';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/AuthStore';
 
 function DashboardContainer() {
   const { user, logout, loading, isAdmin } = useAuth();
   
   const [activeTab, setActiveTab] = useState('dashboard');
-
-  useEffect(() => {
-    if (!isAdmin && activeTab !== 'dashboard') {
-      setActiveTab('dashboard');
-    }
-  }, [isAdmin, activeTab]);
+  const visibleTab = isAdmin ? activeTab : 'dashboard';
 
   if (loading) {
     return (
@@ -65,7 +61,7 @@ function DashboardContainer() {
             <button 
               onClick={() => setActiveTab('dashboard')}
               className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
-                activeTab === 'dashboard' 
+                visibleTab === 'dashboard' 
                   ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
                   : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
               }`}
@@ -78,7 +74,7 @@ function DashboardContainer() {
                 <button 
                   onClick={() => setActiveTab('history')}
                   className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
-                    activeTab === 'history' 
+                    visibleTab === 'history' 
                       ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
                       : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
                   }`}
@@ -89,7 +85,7 @@ function DashboardContainer() {
                 <button 
                   onClick={() => setActiveTab('users')}
                   className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
-                    activeTab === 'users' 
+                    visibleTab === 'users' 
                       ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
                       : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
                   }`}
@@ -137,15 +133,15 @@ function DashboardContainer() {
                 <span className="w-2 h-2 bg-primary animate-pulse"></span> SYSTEM_CORE_ACCESS
               </div>
               <h2 className="font-display text-[32px] text-primary uppercase font-bold">
-                {activeTab === 'dashboard' && (isAdmin ? 'OVERVIEW_DASHBOARD' : 'MY_TELEMETRY')}
-                {activeTab === 'history' && 'MATCH_HISTORY'}
-                {activeTab === 'users' && 'OPERATOR_MANAGEMENT'}
+                {visibleTab === 'dashboard' && (isAdmin ? 'OVERVIEW_DASHBOARD' : 'MY_TELEMETRY')}
+                {visibleTab === 'history' && 'MATCH_HISTORY'}
+                {visibleTab === 'users' && 'OPERATOR_MANAGEMENT'}
               </h2>
             </div>
 
-            {activeTab === 'dashboard' && (isAdmin ? <DashboardHome /> : <UserDashboard />)}
-            {isAdmin && activeTab === 'history' && <MatchHistory />}
-            {isAdmin && activeTab === 'users' && <UserManagement />}
+            {visibleTab === 'dashboard' && (isAdmin ? <DashboardHome /> : <UserDashboard />)}
+            {isAdmin && visibleTab === 'history' && <MatchHistory />}
+            {isAdmin && visibleTab === 'users' && <UserManagement />}
 
           </section>
         </main>

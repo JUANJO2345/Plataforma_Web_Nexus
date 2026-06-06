@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { useState } from 'react';
+import { useAuth } from '../context/AuthStore';
 
 export default function AuthScreen() {
   const { login, register } = useAuth();
@@ -72,7 +72,7 @@ export default function AuthScreen() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-surface-container border border-primary/30 px-4 py-3 font-mono-label text-[13px] text-on-surface focus:outline-none focus:border-primary focus:shadow-[0_0_10px_rgba(0,220,230,0.2)] transition-all"
-              placeholder="••••••••"
+              placeholder="********"
             />
           </div>
 

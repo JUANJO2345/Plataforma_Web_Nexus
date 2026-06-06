@@ -1,43 +1,82 @@
 # Nexus Plataforma Web
 
-Sistema integral de evaluación cognitiva basado en entornos gamificados. La plataforma registra, procesa y clasifica métricas de desempeño de operadores en cuatro dimensiones clave: Abstracción, Pensamiento Computacional, Descomposición y Reconocimiento de Patrones a lo largo de múltiples niveles de dificultad.
+Sistema integral de evaluación cognitiva basado en entornos gamificados. La plataforma permite registrar, procesar y clasificar métricas de desempeño de operadores en cuatro dimensiones clave:
+
+- Abstracción
+- Pensamiento computacional
+- Descomposición
+- Reconocimiento de patrones
+
+Cada dimensión se evalúa a través de múltiples niveles de dificultad, permitiendo construir rankings, consultar historial de partidas y visualizar el progreso individual de cada operador.
 
 ## Estructura del Proyecto
 
-El repositorio está organizado bajo una arquitectura monolítica dividida en dos componentes principales:
+El repositorio está organizado como una aplicación web con dos componentes principales:
 
-Nexus_Plataforma_Web/
+```text
+Plataforma_Web_Nexus/
+├── Backend/     # API REST, persistencia de datos y modelos (Node.js, Express, SQLite, Sequelize)
 ├── FrontEnd/    # Interfaz de usuario, dashboards y paneles de administración (React, Vite, TailwindCSS)
-├── BackEnd/     # API REST, controladores y persistencia de datos (Node.js, Express, SQLite)
 └── README.md    # Documentación general del sistema
+```
 
-Configuración e Instalación
-Siga las siguientes instrucciones para desplegar el entorno de desarrollo local.
+## Características Principales
 
-1. Clonar el Repositorio
-git clone [https://github.com/JUANJO2345/Nexus_Plataforma_Web.git](https://github.com/JUANJO2345/Nexus_Plataforma_Web.git)
+- Registro e inicio de sesión de operadores.
+- Cifrado de contraseñas con bcrypt.
+- Gestión de usuarios desde una vista administrativa.
+- Registro de partidas asociadas a usuarios reales del sistema.
+- Tablas de clasificación por dimensión cognitiva.
+- Vista individual de desempeño para cada operador.
+- Persistencia local mediante SQLite.
+
+## Modelo de Datos
+
+El sistema trabaja con dos entidades principales:
+
+- `Usuario`: representa a un operador o administrador registrado.
+- `Partida`: representa una sesión de evaluación cognitiva.
+
+Cada partida pertenece a un usuario mediante la relación `Usuario.hasMany(Partida)` y `Partida.belongsTo(Usuario)`. Esto evita depender únicamente de correos escritos como texto y permite consultar el historial de un operador de forma más consistente.
+
+## Instalación y Ejecución
+
+### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/JUANJO2345/Nexus_Plataforma_Web.git
 cd Nexus_Plataforma_Web
+```
 
-3. Configuración del Servidor (BackEnd)
+### 2. Configurar el Backend
 
-# Navegar al directorio del servidor
-cd BackEnd
-
-# Instalar las dependencias necesarias
+```bash
+cd Backend
 npm install
+npm start
+```
 
-# Iniciar el servidor en modo de desarrollo
-node server.js
+El servidor API se ejecuta por defecto en:
 
-3. Configuración de la Interfaz (FrontEnd)
-El cliente está construido sobre React utilizando Vite como empaquetador para optimizar los tiempos de recarga en caliente y compilación.
+```text
+http://localhost:3000
+```
 
-Bash
-# Abrir una nueva pestaña de la terminal y navegar al directorio del cliente
-cd FrontEnd
+### 3. Configurar el Frontend
 
-# Instalar las dependencias de la interfaz
+En una segunda terminal:
+
+```bash
+cd FrontEnd/FrontEnd
 npm install
-
-# Iniciar el servidor de desarrollo de Vite
 npm run dev
+```
+
+Vite mostrará la URL local para acceder a la interfaz web.
+
+## Notas de Desarrollo
+
+- La autenticación actual está pensada para entorno académico o prototipo funcional.
+- La base de datos SQLite se crea localmente en `Backend/database.sqlite`.
+- El backend usa `sequelize.sync({ alter: true })` para mantener el esquema actualizado durante el desarrollo.
+- Para producción, se recomienda agregar autenticación con tokens, control de permisos en backend y migraciones formales.

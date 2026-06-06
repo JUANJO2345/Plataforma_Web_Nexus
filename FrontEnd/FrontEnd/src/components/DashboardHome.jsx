@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import LeaderboardTables from './LeaderboardTables';
 
 export default function DashboardHome() {

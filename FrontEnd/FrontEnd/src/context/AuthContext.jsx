@@ -1,22 +1,22 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import { useState } from 'react';
+import { AuthContext } from './AuthStore';
 
-const AuthContext = createContext(null);
+function obtenerUsuarioGuardado() {
+  try {
+    const savedUser = localStorage.getItem('net_runner_user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  } catch {
+    localStorage.removeItem('net_runner_user');
+    return null;
+  }
+}
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Comprobar si hay una sesión guardada en el navegador al cargar la app
-    const savedUser = localStorage.getItem('net_runner_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
-  }, []);
+  const [user, setUser] = useState(obtenerUsuarioGuardado);
+  const loading = false;
 
   const login = async (username, password) => {
-    // Aquí hacemos el puente con la API de tu Backend
+    // Puente con la API del backend.
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,7 +26,6 @@ export function AuthProvider({ children }) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'ACCESS_DENIED: Credenciales inválidas');
 
-    // Si el backend responde OK, guardamos el usuario
     localStorage.setItem('net_runner_user', JSON.stringify(data));
     setUser(data);
     return data;
@@ -41,8 +40,8 @@ export function AuthProvider({ children }) {
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'REGISTRATION_FAILED: Error en el registro');
-    
-    // Auto-login tras registrarse con éxito
+
+    // Auto-login tras registrarse con éxito.
     localStorage.setItem('net_runner_user', JSON.stringify(data));
     setUser(data);
     return data;
@@ -58,12 +57,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth debe usarse dentro de AuthProvider');
-
-  const isAdmin = context.user?.rol === 'admin';
-  return { ...context, isAdmin };
 }
