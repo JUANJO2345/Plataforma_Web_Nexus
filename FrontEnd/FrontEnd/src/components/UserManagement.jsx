@@ -8,7 +8,7 @@ export default function UserManagement() {
   // Estados para el Formulario (Crear / Editar)
   const [isEditing, setIsEditing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  const [formData, setFormData] = useState({ correo: '', contrasena: '', nombre: '' });
+  const [formData, setFormData] = useState({ correo: '', contrasena: '', nombre: '', rol: 'user' });
 
   // Cargar usuarios al montar el componente
   const fetchUsuarios = async () => {
@@ -60,7 +60,7 @@ export default function UserManagement() {
       if (!res.ok) throw new Error('Fallo en la escritura de base de datos.');
 
       // Limpiar formulario y recargar lista
-      setFormData({ correo: '', contrasena: '', nombre: '' });
+      setFormData({ correo: '', contrasena: '', nombre: '', rol: 'user' });
       setIsEditing(false);
       setSelectedId(null);
       fetchUsuarios();
@@ -76,7 +76,8 @@ export default function UserManagement() {
     setFormData({
       correo: usuario.correo,
       nombre: usuario.nombre || '',
-      contrasena: '' // Se deja vacío por seguridad; si se escribe, se cambiará
+      rol: usuario.rol || 'user',
+      contrasena: ''
     });
   };
 
@@ -112,6 +113,7 @@ export default function UserManagement() {
                   <th className="py-2 px-3">ID</th>
                   <th className="py-2 px-3">Nombre</th>
                   <th className="py-2 px-3">Correo / Identificador</th>
+                  <th className="py-2 px-3">Rol</th>
                   <th className="py-2 px-4 text-right">Acciones</th>
                 </tr>
               </thead>
@@ -121,6 +123,15 @@ export default function UserManagement() {
                     <td className="py-3 px-3 text-on-surface-variant">#{String(u.id).padStart(3, '0')}</td>
                     <td className="py-3 px-3 font-bold text-on-surface">{u.nombre || 'N/A'}</td>
                     <td className="py-3 px-3 text-primary">{u.correo}</td>
+                    <td className="py-3 px-3">
+                      <span className={`px-2 py-0.5 text-[10px] uppercase font-bold border ${
+                        u.rol === 'admin'
+                          ? 'border-secondary text-secondary'
+                          : 'border-primary/30 text-on-surface-variant'
+                      }`}>
+                        {u.rol || 'user'}
+                      </span>
+                    </td>
                     <td className="py-3 px-4 text-right space-x-2">
                       <button 
                         onClick={() => handleEditClick(u)}
@@ -176,6 +187,19 @@ export default function UserManagement() {
           </div>
 
           <div>
+            <label className="block text-on-surface-variant/80 mb-1 uppercase text-[11px]">Rol del Operador</label>
+            <select
+              name="rol"
+              value={formData.rol}
+              onChange={handleChange}
+              className="w-full bg-surface-container-high/60 border border-secondary/20 p-2 text-on-surface focus:outline-none focus:border-secondary transition-colors"
+            >
+              <option value="user">user — Operador</option>
+              <option value="admin">admin — Administrador</option>
+            </select>
+          </div>
+
+          <div>
             <label className="block text-on-surface-variant/80 mb-1 uppercase text-[11px]">
               {isEditing ? 'Nueva Contraseña (Dejar vacío para mantener)' : 'Contraseña de Red'}
             </label>
@@ -203,7 +227,7 @@ export default function UserManagement() {
                 onClick={() => {
                   setIsEditing(false);
                   setSelectedId(null);
-                  setFormData({ correo: '', contrasena: '', nombre: '' });
+                  setFormData({ correo: '', contrasena: '', nombre: '', rol: 'user' });
                 }}
                 className="px-3 py-3 border border-on-surface-variant/30 text-on-surface-variant uppercase hover:bg-surface-container transition-all cursor-pointer"
               >

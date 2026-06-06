@@ -1,15 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import MatchHistory from './components/MatchHistory';
 import DashboardHome from './components/DashboardHome';
+import UserDashboard from './components/UserDashboard';
 import UserManagement from './components/UserManagement';
 import AuthScreen from './components/AuthScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 function DashboardContainer() {
-  const { user, logout, loading } = useAuth();
+  const { user, logout, loading, isAdmin } = useAuth();
   
-  // Panel de control principal: 'dashboard', 'history' o 'users'
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  useEffect(() => {
+    if (!isAdmin && activeTab !== 'dashboard') {
+      setActiveTab('dashboard');
+    }
+  }, [isAdmin, activeTab]);
 
   if (loading) {
     return (
@@ -46,7 +52,9 @@ function DashboardContainer() {
               <div className="font-mono-label text-primary font-bold uppercase truncate max-w-[200px]">
                 {user.username.split('@')[0]}
               </div>
-              <div className="font-mono-label text-on-surface-variant text-[10px] uppercase opacity-60">Status: Secure_Link</div>
+              <div className="font-mono-label text-on-surface-variant text-[10px] uppercase opacity-60">
+                Rol: {isAdmin ? 'Admin' : 'Operador'}
+              </div>
             </div>
           </div>
           
@@ -65,39 +73,43 @@ function DashboardContainer() {
               <span className="material-symbols-outlined text-[20px]">dashboard</span> Dashboard
             </button>
             
-            {/* Match History */}
-            <button 
-              onClick={() => setActiveTab('history')}
-              className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
-                activeTab === 'history' 
-                  ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
-                  : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[20px]">history</span> Match History
-            </button>
+            {isAdmin && (
+              <>
+                <button 
+                  onClick={() => setActiveTab('history')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
+                    activeTab === 'history' 
+                      ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
+                      : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[20px]">history</span> Match History
+                </button>
 
-            {/* User Management */}
-            <button 
-              onClick={() => setActiveTab('users')}
-              className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
-                activeTab === 'users' 
-                  ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
-                  : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[20px]">group</span> User Management
-            </button>
+                <button 
+                  onClick={() => setActiveTab('users')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 font-mono-label text-[12px] transition-all duration-200 text-left cursor-pointer ${
+                    activeTab === 'users' 
+                      ? 'text-primary font-bold border-l-4 border-primary bg-primary/10 shadow-[inset_4px_0_0_rgba(0,220,230,0.2)]' 
+                      : 'text-on-surface-variant font-medium hover:bg-primary/5 hover:text-primary'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[20px]">group</span> User Management
+                </button>
+              </>
+            )}
           </nav>
           
-          <div className="px-6 py-6">
-            <button 
-              onClick={() => setActiveTab('history')} // 🚀 Redirige directo al flujo de partidas
-              className="w-full py-4 bg-primary text-on-primary font-mono-label font-bold uppercase tracking-widest text-[12px] hover:shadow-[0_0_20px_rgba(0,220,230,0.6)] transition-all active:scale-95 duration-100 cursor-pointer text-center"
-            >
-              NEW_MATCH
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="px-6 py-6">
+              <button 
+                onClick={() => setActiveTab('history')}
+                className="w-full py-4 bg-primary text-on-primary font-mono-label font-bold uppercase tracking-widest text-[12px] hover:shadow-[0_0_20px_rgba(0,220,230,0.6)] transition-all active:scale-95 duration-100 cursor-pointer text-center"
+              >
+                NEW_MATCH
+              </button>
+            </div>
+          )}
         </aside>
 
         {/* Área de Contenido Principal (Main) */}
@@ -125,16 +137,15 @@ function DashboardContainer() {
                 <span className="w-2 h-2 bg-primary animate-pulse"></span> SYSTEM_CORE_ACCESS
               </div>
               <h2 className="font-display text-[32px] text-primary uppercase font-bold">
-                {activeTab === 'dashboard' && 'OVERVIEW_DASHBOARD'}
+                {activeTab === 'dashboard' && (isAdmin ? 'OVERVIEW_DASHBOARD' : 'MY_TELEMETRY')}
                 {activeTab === 'history' && 'MATCH_HISTORY'}
                 {activeTab === 'users' && 'OPERATOR_MANAGEMENT'}
               </h2>
             </div>
 
-            {/* 🖥️ RENDERIZADO DINÁMICO SEGÚN PESTAÑA */}
-            {activeTab === 'dashboard' && <DashboardHome />}
-            {activeTab === 'history' && <MatchHistory />}
-            {activeTab === 'users' && <UserManagement />}
+            {activeTab === 'dashboard' && (isAdmin ? <DashboardHome /> : <UserDashboard />)}
+            {isAdmin && activeTab === 'history' && <MatchHistory />}
+            {isAdmin && activeTab === 'users' && <UserManagement />}
 
           </section>
         </main>
