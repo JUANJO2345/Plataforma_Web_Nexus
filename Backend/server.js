@@ -59,6 +59,7 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(201).json({
       id: nuevoUsuario.id,
       username: nuevoUsuario.correo,
+      rol: nuevoUsuario.rol,
       status: "AUTHORIZED"
     });
   } catch (error) {
@@ -102,6 +103,7 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       id: usuario.id,
       username: usuario.correo,
+      rol: usuario.rol,
       status: "LINK_ESTABLISHED"
     });
   } catch (error) {
@@ -204,19 +206,23 @@ app.get('/api/usuarios/:id', async (req, res) => {
 // Crear usuario desde el CRUD de admin (También cifra la contraseña)
 app.post('/api/usuarios', async (req, res) => {
   try {
-    const { correo, contrasena } = req.body;
+    const { correo, contrasena, nombre, rol } = req.body;
     if (!correo || !contrasena) {
       return res.status(400).json({ error: 'Faltan parámetros obligatorios (correo y contrasena).' });
     }
 
+    const correoLimpio = correo.toLowerCase().trim();
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(contrasena, saltRounds);
 
     const nuevoUsuario = await Usuario.create({
-      correo: correo.toLowerCase().trim(),
-      contrasena: hashedPassword
+      nombre: nombre || correoLimpio.split('@')[0],
+      correo: correoLimpio,
+      contrasena: hashedPassword,
+      rol: rol || 'user'
     });
-    res.status(201).json(nuevoUsuario);
+    const { contrasena: _, ...usuarioSeguro } = nuevoUsuario.toJSON();
+    res.status(201).json(usuarioSeguro);
   } catch (error) {
     res.status(400).json({ error: 'Error al registrar el usuario', detalle: error.message });
   }
@@ -234,7 +240,8 @@ app.put('/api/usuarios/:id', async (req, res) => {
     }
 
     await usuario.update(req.body);
-    res.json({ message: 'Usuario actualizado con éxito', usuario });
+    const { contrasena: _, ...usuarioSeguro } = usuario.toJSON();
+    res.json({ message: 'Usuario actualizado con éxito', usuario: usuarioSeguro });
   } catch (error) {
     res.status(400).json({ error: 'Error al actualizar el usuario' });
   }
