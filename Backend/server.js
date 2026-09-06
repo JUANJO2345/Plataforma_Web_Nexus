@@ -4,6 +4,8 @@ const bcrypt = require('bcrypt');
 const sequelize = require('./config/database');
 const Partida = require('./models/Partida');
 const Usuario = require('./models/Usuario');
+const Grupo = require('./models/Grupo');
+const GrupoEstudiante = require('./models/GrupoEstudiante');
 
 const app = express();
 
@@ -24,11 +26,53 @@ Partida.belongsTo(Usuario, {
   as: 'usuario'
 });
 
+// Relación Grupo -> Profesor (Usuario)
+Grupo.belongsTo(Usuario, {
+  foreignKey: 'profesorId',
+  as: 'profesor',
+  onDelete: 'SET NULL',
+  onUpdate: 'CASCADE'
+});
+
+Usuario.hasMany(Grupo, {
+  foreignKey: 'profesorId',
+  as: 'gruposImpartidos'
+});
+
+// Relación Muchos a Muchos: Grupo <-> Usuario (Estudiantes)
+Grupo.belongsToMany(Usuario, {
+  through: GrupoEstudiante,
+  foreignKey: 'grupoId',
+  otherKey: 'estudianteId',
+  as: 'estudiantes'
+});
+
+Usuario.belongsToMany(Grupo, {
+  through: GrupoEstudiante,
+  foreignKey: 'estudianteId',
+  otherKey: 'grupoId',
+  as: 'gruposInscritos'
+});
+
 const incluirUsuarioEnPartida = {
   model: Usuario,
   as: 'usuario',
   attributes: ['id', 'nombre', 'correo', 'rol']
 };
+
+const incluirDetallesGrupo = [
+  {
+    model: Usuario,
+    as: 'profesor',
+    attributes: ['id', 'nombre', 'correo', 'rol']
+  },
+  {
+    model: Usuario,
+    as: 'estudiantes',
+    attributes: ['id', 'nombre', 'correo', 'rol'],
+    through: { attributes: [] }
+  }
+];
 
 function serializarPartida(partida) {
   const data = partida.toJSON();
@@ -339,6 +383,163 @@ app.delete('/api/usuarios/:id', async (req, res) => {
     res.json({ message: 'Usuario eliminado correctamente' });
   } catch (error) {
     res.status(500).json({ error: 'Error al eliminar el usuario', detalle: error.message });
+  }
+});
+
+// ==========================================
+// ENDPOINTS DE GRUPOS (CRUD Y ASIGNACIONES)
+// ==========================================
+
+// Obtener todos los grupos con su profesor y estudiantes inscritos.
+app.get('/api/grupos', async (req, res) => {
+  try {
+    const grupos = await Grupo.findAll({
+      include: incluirDetallesGrupo,
+      order: [['id', 'ASC']]
+    });
+    res.json(grupos);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener los grupos', detalle: error.message });
+  }
+});
+
+// Obtener un grupo por ID.
+app.get('/api/grupos/:id', async (req, res) => {
+  try {
+    const grupo = await Grupo.findByPk(req.params.id, {
+      include: incluirDetallesGrupo
+    });
+    if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+    res.json(grupo);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener el grupo por ID', detalle: error.message });
+  }
+});
+
+// Crear un nuevo grupo (código, nombre, profesorId, estudianteIds).
+app.post('/api/grupos', async (req, res) => {
+  try {
+    const { codigo, nombre, profesorId, estudianteIds } = req.body;
+    if (!codigo) {
+      return res.status(400).json({ error: 'El campo código es obligatorio.' });
+    }
+
+    if (profesorId) {
+      const profesor = await Usuario.findByPk(profesorId);
+      if (!profesor) {
+        return res.status(400).json({ error: 'El profesor especificado no existe.' });
+      }
+    }
+
+    const nuevoGrupo = await Grupo.create({
+      codigo: codigo.trim(),
+      nombre: nombre ? nombre.trim() : null,
+      profesorId: profesorId || null
+    });
+
+    if (Array.isArray(estudianteIds) && estudianteIds.length > 0) {
+      await nuevoGrupo.setEstudiantes(estudianteIds);
+    }
+
+    const grupoConDetalles = await Grupo.findByPk(nuevoGrupo.id, {
+      include: incluirDetallesGrupo
+    });
+
+    res.status(201).json(grupoConDetalles);
+  } catch (error) {
+    res.status(400).json({ error: 'Error al crear el grupo', detalle: error.message });
+  }
+});
+
+// Actualizar un grupo.
+app.put('/api/grupos/:id', async (req, res) => {
+  try {
+    const grupo = await Grupo.findByPk(req.params.id);
+    if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+
+    const { codigo, nombre, profesorId, estudianteIds } = req.body;
+
+    if (profesorId !== undefined && profesorId !== null) {
+      const profesor = await Usuario.findByPk(profesorId);
+      if (!profesor) {
+        return res.status(400).json({ error: 'El profesor especificado no existe.' });
+      }
+    }
+
+    const cambios = {};
+    if (codigo !== undefined) cambios.codigo = codigo.trim();
+    if (nombre !== undefined) cambios.nombre = nombre.trim();
+    if (profesorId !== undefined) cambios.profesorId = profesorId;
+
+    await grupo.update(cambios);
+
+    if (Array.isArray(estudianteIds)) {
+      await grupo.setEstudiantes(estudianteIds);
+    }
+
+    const grupoActualizado = await Grupo.findByPk(grupo.id, {
+      include: incluirDetallesGrupo
+    });
+
+    res.json({ message: 'Grupo actualizado con éxito', grupo: grupoActualizado });
+  } catch (error) {
+    res.status(400).json({ error: 'Error al actualizar el grupo', detalle: error.message });
+  }
+});
+
+// Inscribir estudiante(s) a un grupo.
+app.post('/api/grupos/:id/estudiantes', async (req, res) => {
+  try {
+    const grupo = await Grupo.findByPk(req.params.id);
+    if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+
+    const ids = Array.isArray(req.body.estudianteIds)
+      ? req.body.estudianteIds
+      : req.body.estudianteId ? [req.body.estudianteId] : [];
+
+    if (ids.length === 0) {
+      return res.status(400).json({ error: 'Debe proporcionar estudianteId o estudianteIds.' });
+    }
+
+    await grupo.addEstudiantes(ids);
+
+    const grupoActualizado = await Grupo.findByPk(grupo.id, {
+      include: incluirDetallesGrupo
+    });
+
+    res.json({ message: 'Estudiante(s) inscrito(s) correctamente', grupo: grupoActualizado });
+  } catch (error) {
+    res.status(400).json({ error: 'Error al inscribir estudiantes en el grupo', detalle: error.message });
+  }
+});
+
+// Desinscribir un estudiante de un grupo.
+app.delete('/api/grupos/:id/estudiantes/:estudianteId', async (req, res) => {
+  try {
+    const grupo = await Grupo.findByPk(req.params.id);
+    if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+
+    await grupo.removeEstudiante(req.params.estudianteId);
+
+    const grupoActualizado = await Grupo.findByPk(grupo.id, {
+      include: incluirDetallesGrupo
+    });
+
+    res.json({ message: 'Estudiante removido del grupo correctamente', grupo: grupoActualizado });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al remover estudiante del grupo', detalle: error.message });
+  }
+});
+
+// Eliminar un grupo.
+app.delete('/api/grupos/:id', async (req, res) => {
+  try {
+    const filasBorradas = await Grupo.destroy({ where: { id: req.params.id } });
+    if (filasBorradas === 0) return res.status(404).json({ error: 'Grupo no encontrado' });
+
+    res.json({ message: 'Grupo eliminado correctamente' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar el grupo', detalle: error.message });
   }
 });
 
