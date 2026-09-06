@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
 const sequelize = require('./config/database');
 const Partida = require('./models/Partida');
 const Usuario = require('./models/Usuario');
@@ -168,22 +169,31 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ message: 'Correo y clave requeridos.' });
     }
 
-    const correoLimpio = identificador.toLowerCase().trim();
-    console.log('>> Buscando operador:', correoLimpio);
+    const identificadorLimpio = identificador.toLowerCase().trim();
+    console.log('>> Buscando operador:', identificadorLimpio);
 
-    const usuario = await Usuario.findOne({ where: { correo: correoLimpio } });
+    const usuario = await Usuario.findOne({
+      where: {
+        [Op.or]: [
+          sequelize.where(sequelize.fn('LOWER', sequelize.col('correo')), identificadorLimpio),
+          sequelize.where(sequelize.fn('LOWER', sequelize.col('nombre')), identificadorLimpio),
+          { correo: { [Op.like]: `${identificadorLimpio}@%` } }
+        ]
+      }
+    });
+
     if (!usuario) {
-      console.log(`[!] Login fallido: el correo ${correoLimpio} no existe.`);
+      console.log(`[!] Login fallido: el usuario o correo ${identificadorLimpio} no existe.`);
       return res.status(401).json({ message: 'Credenciales inválidas.' });
     }
 
     const passwordValido = await bcrypt.compare(clave, usuario.contrasena);
     if (!passwordValido) {
-      console.log(`[!] Login fallido: contraseña incorrecta para ${correoLimpio}.`);
+      console.log(`[!] Login fallido: contraseña incorrecta para ${identificadorLimpio}.`);
       return res.status(401).json({ message: 'Fallo en la verificación de seguridad.' });
     }
 
-    console.log(`>> [SUCCESS] Enlace establecido para: ${correoLimpio}`);
+    console.log(`>> [SUCCESS] Enlace establecido para: ${identificadorLimpio}`);
 
     res.json({
       id: usuario.id,
@@ -361,9 +371,11 @@ app.put('/api/usuarios/:id', async (req, res) => {
     const usuario = await Usuario.findByPk(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-    // Si en la actualización viene una contraseña nueva, se cifra antes de guardar.
-    if (req.body.contrasena) {
+    // Si en la actualización viene una contraseña nueva no vacía, se cifra antes de guardar.
+    if (req.body.contrasena && typeof req.body.contrasena === 'string' && req.body.contrasena.trim() !== '') {
       req.body.contrasena = await bcrypt.hash(req.body.contrasena, 10);
+    } else {
+      delete req.body.contrasena;
     }
 
     await usuario.update(req.body);
@@ -393,10 +405,22 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 // Obtener todos los grupos con su profesor y estudiantes inscritos.
 app.get('/api/grupos', async (req, res) => {
   try {
-    const grupos = await Grupo.findAll({
+    const whereClause = {};
+    if (req.query.profesorId) {
+      whereClause.profesorId = req.query.profesorId;
+    }
+
+    let grupos = await Grupo.findAll({
+      where: whereClause,
       include: incluirDetallesGrupo,
       order: [['id', 'ASC']]
     });
+
+    if (req.query.estudianteId) {
+      const estId = parseInt(req.query.estudianteId, 10);
+      grupos = grupos.filter(g => g.estudiantes && g.estudiantes.some(e => e.id === estId));
+    }
+
     res.json(grupos);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener los grupos', detalle: error.message });
@@ -547,7 +571,7 @@ app.delete('/api/grupos/:id', async (req, res) => {
 // CONEXIÓN Y ARRANQUE DEL SISTEMA
 // ==========================================
 const PORT = 3000;
-sequelize.sync({ alter: true })
+sequelize.sync()
   .then(() => {
     console.log('\n==================================================');
     console.log('Conectado a SQLite mediante Sequelize');

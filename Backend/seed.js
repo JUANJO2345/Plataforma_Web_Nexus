@@ -14,7 +14,7 @@ Usuario.belongsToMany(Grupo, { through: GrupoEstudiante, foreignKey: 'estudiante
 async function main() {
   try {
     // Ensure DB and models are synchronized
-    await sequelize.sync({ alter: true });
+    await sequelize.sync();
 
     let profesor = await Usuario.findOne({ where: { rol: 'profesor' } });
     const saltRounds = 10;

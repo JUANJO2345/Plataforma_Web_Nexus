@@ -8,7 +8,7 @@ export default function UserManagement() {
   // Estados para el formulario de creación y edición.
   const [isEditing, setIsEditing] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  const [formData, setFormData] = useState({ correo: '', contrasena: '', nombre: '', rol: 'user' });
+  const [formData, setFormData] = useState({ correo: '', contrasena: '', nombre: '', rol: 'estudiante' });
 
   // Cargar usuarios al montar el componente.
   const fetchUsuarios = async () => {
@@ -27,11 +27,7 @@ export default function UserManagement() {
   };
 
   useEffect(() => {
-    const loadInitialUsers = async () => {
-      await fetchUsuarios();
-    };
-
-    loadInitialUsers();
+    fetchUsuarios();
   }, []);
 
   // Manejar cambios en los inputs.
@@ -52,7 +48,6 @@ export default function UserManagement() {
       const method = isEditing ? 'PUT' : 'POST';
       
       const payload = { ...formData };
-      // Si estamos editando y dejaron la clave vacía, se elimina para no sobrescribirla.
       if (isEditing && !payload.contrasena) delete payload.contrasena;
 
       const res = await fetch(url, {
@@ -64,7 +59,7 @@ export default function UserManagement() {
       if (!res.ok) throw new Error('Fallo en la escritura de base de datos.');
 
       // Limpiar formulario y recargar lista.
-      setFormData({ correo: '', contrasena: '', nombre: '', rol: 'user' });
+      setFormData({ correo: '', contrasena: '', nombre: '', rol: 'estudiante' });
       setIsEditing(false);
       setSelectedId(null);
       fetchUsuarios();
@@ -80,18 +75,18 @@ export default function UserManagement() {
     setFormData({
       correo: usuario.correo,
       nombre: usuario.nombre || '',
-      rol: usuario.rol || 'user',
+      rol: usuario.rol || 'estudiante',
       contrasena: ''
     });
   };
 
   // Eliminar usuario.
   const handleDelete = async (id) => {
-    if (!confirm('¿Seguro que deseas desvincular a este operador de la red central?')) return;
+    if (!confirm('¿Seguro que deseas desvincular a este usuario del sistema?')) return;
 
     try {
       const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('No se pudo purgar el registro.');
+      if (!res.ok) throw new Error('No se pudo eliminar el registro.');
       fetchUsuarios();
     } catch (err) {
       alert(`[!] CRITICAL_DELETE_ERROR: ${err.message}`);
@@ -101,7 +96,7 @@ export default function UserManagement() {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
       
-      {/* Columna izquierda: tabla de operadores */}
+      {/* Columna izquierda: tabla de usuarios */}
       <div className="xl:col-span-2 border border-primary/30 bg-surface-container-low/40 p-6 backdrop-blur-md relative overflow-hidden shadow-[0_0_15px_rgba(0,220,230,0.02)]">
         <h3 className="font-mono-label text-primary text-[12px] font-bold mb-4 uppercase tracking-wider">// NETWORK_OPERATORS_INDEX</h3>
         
@@ -131,9 +126,11 @@ export default function UserManagement() {
                       <span className={`px-2 py-0.5 text-[10px] uppercase font-bold border ${
                         u.rol === 'admin'
                           ? 'border-secondary text-secondary'
-                          : 'border-primary/30 text-on-surface-variant'
+                          : u.rol === 'profesor'
+                          ? 'border-orange-400 text-orange-400'
+                          : 'border-primary/40 text-primary'
                       }`}>
-                        {u.rol || 'user'}
+                        {u.rol === 'admin' ? 'Admin' : u.rol === 'profesor' ? 'Profesor' : 'Estudiante'}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right space-x-2">
@@ -166,7 +163,7 @@ export default function UserManagement() {
 
         <form onSubmit={handleSubmit} className="space-y-4 font-mono-label text-[12px]">
           <div>
-            <label className="block text-on-surface-variant/80 mb-1 uppercase text-[11px]">Nombre de Operador</label>
+            <label className="block text-on-surface-variant/80 mb-1 uppercase text-[11px]">Nombre de Usuario</label>
             <input 
               type="text" 
               name="nombre"
@@ -191,15 +188,16 @@ export default function UserManagement() {
           </div>
 
           <div>
-            <label className="block text-on-surface-variant/80 mb-1 uppercase text-[11px]">Rol del Operador</label>
+            <label className="block text-on-surface-variant/80 mb-1 uppercase text-[11px]">Rol del Usuario</label>
             <select
               name="rol"
               value={formData.rol}
               onChange={handleChange}
               className="w-full bg-surface-container-high/60 border border-secondary/20 p-2 text-on-surface focus:outline-none focus:border-secondary transition-colors"
             >
-              <option value="user">user - Operador</option>
-              <option value="admin">admin - Administrador</option>
+              <option value="estudiante">Estudiante</option>
+              <option value="profesor">Profesor</option>
+              <option value="admin">Administrador</option>
             </select>
           </div>
 
@@ -231,7 +229,7 @@ export default function UserManagement() {
                 onClick={() => {
                   setIsEditing(false);
                   setSelectedId(null);
-                  setFormData({ correo: '', contrasena: '', nombre: '', rol: 'user' });
+                  setFormData({ correo: '', contrasena: '', nombre: '', rol: 'estudiante' });
                 }}
                 className="px-3 py-3 border border-on-surface-variant/30 text-on-surface-variant uppercase hover:bg-surface-container transition-all cursor-pointer"
               >
