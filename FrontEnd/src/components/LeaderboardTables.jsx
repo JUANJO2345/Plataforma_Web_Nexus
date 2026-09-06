@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react';
+
 const ZONAS = [
   { titulo: 'Abstracción', key: 'abstraccion', color: 'text-primary', border: 'border-primary/30' },
   { titulo: 'Pensamiento Computacional', key: 'pensamiento_computacional', color: 'text-secondary', border: 'border-secondary/30' },
@@ -53,13 +55,13 @@ function TablaZona({ titulo, zonaKey, colorTexto, colorBorde, partidas, highligh
             {partidasOrdenadas.length === 0 ? (
               <tr>
                 <td colSpan="7" className="py-4 text-center text-on-surface-variant/40 italic">
-                  -- No se registran telemetrías en este sector --
+                  -- No se registran telemetrías en este sector para el filtro seleccionado --
                 </td>
               </tr>
             ) : (
               partidasOrdenadas.map((p, index) => {
                 const esTop3 = index < 3;
-                const medalColor = index === 0 ? 'text-amber-400' : index === 1 ? 'text-slate-300' : 'text-amber-600';
+                const medalColor = index === 0 ? 'text-amber-400 font-bold' : index === 1 ? 'text-slate-300 font-bold' : 'text-amber-600 font-bold';
                 const esUsuarioActual = highlightUsername && p.username === highlightUsername;
 
                 return (
@@ -111,19 +113,78 @@ function TablaZona({ titulo, zonaKey, colorTexto, colorBorde, partidas, highligh
 }
 
 export default function LeaderboardTables({ partidas, highlightUsername }) {
+  const [grupos, setGrupos] = useState([]);
+  const [grupoIdSeleccionado, setGrupoIdSeleccionado] = useState('global');
+
+  useEffect(() => {
+    const fetchGrupos = async () => {
+      try {
+        const res = await fetch('/api/grupos');
+        if (res.ok) {
+          const data = await res.json();
+          setGrupos(data);
+        }
+      } catch (err) {
+        console.error('Error al cargar grupos en el leaderboard:', err);
+      }
+    };
+    fetchGrupos();
+  }, []);
+
+  // Filtrar partidas por grupo seleccionado
+  const partidasFiltradas = grupoIdSeleccionado === 'global'
+    ? partidas
+    : (() => {
+        const grupoActual = grupos.find((g) => String(g.id) === String(grupoIdSeleccionado));
+        if (!grupoActual || !grupoActual.estudiantes) return [];
+        const estudianteIds = grupoActual.estudiantes.map((e) => e.id);
+        const estudianteCorreos = grupoActual.estudiantes.map((e) => e.correo.toLowerCase());
+        return partidas.filter(
+          (p) =>
+            estudianteIds.includes(p.usuarioId) ||
+            estudianteCorreos.includes(p.username?.toLowerCase())
+        );
+      })();
+
   return (
-    <div className="grid grid-cols-1 gap-6">
-      {ZONAS.map(({ titulo, key, color, border }) => (
-        <TablaZona
-          key={key}
-          titulo={titulo}
-          zonaKey={key}
-          colorTexto={color}
-          colorBorde={border}
-          partidas={partidas}
-          highlightUsername={highlightUsername}
-        />
-      ))}
+    <div className="space-y-6">
+      {/* Controles de Filtro de Clasificación */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-low/60 border border-primary/30 p-4 backdrop-blur-md font-mono-label">
+        <div className="flex items-center gap-2 text-primary font-bold text-[12px] uppercase">
+          <span className="material-symbols-outlined text-[20px]">filter_alt</span>
+          Filtro de Clasificación:
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <label className="text-[11px] text-on-surface-variant uppercase">Filtrar por Grupo:</label>
+          <select
+            value={grupoIdSeleccionado}
+            onChange={(e) => setGrupoIdSeleccionado(e.target.value)}
+            className="bg-surface-container border border-primary/30 px-3 py-1.5 text-[12px] text-primary focus:outline-none focus:border-primary transition-all cursor-pointer"
+          >
+            <option value="global">🌐 Clasificación Global (Todos los usuarios)</option>
+            {grupos.map((g) => (
+              <option key={g.id} value={g.id}>
+                🏫 {g.codigo} - {g.nombre || 'Sin nombre'}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        {ZONAS.map(({ titulo, key, color, border }) => (
+          <TablaZona
+            key={key}
+            titulo={titulo}
+            zonaKey={key}
+            colorTexto={color}
+            colorBorde={border}
+            partidas={partidasFiltradas}
+            highlightUsername={highlightUsername}
+          />
+        ))}
+      </div>
     </div>
   );
 }

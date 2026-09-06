@@ -15,8 +15,18 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(obtenerUsuarioGuardado);
   const loading = false;
 
+  const authFetch = async (url, options = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    };
+    if (user?.token) {
+      headers['Authorization'] = `Bearer ${user.token}`;
+    }
+    return fetch(url, { ...options, headers });
+  };
+
   const login = async (username, password) => {
-    // Puente con la API del backend.
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,7 +51,6 @@ export function AuthProvider({ children }) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'REGISTRATION_FAILED: Error en el registro');
 
-    // Auto-login tras registrarse con éxito.
     localStorage.setItem('net_runner_user', JSON.stringify(data));
     setUser(data);
     return data;
@@ -53,7 +62,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, loading, authFetch }}>
       {children}
     </AuthContext.Provider>
   );

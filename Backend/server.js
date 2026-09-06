@@ -96,11 +96,52 @@ async function buscarUsuarioParaPartida(body) {
   });
 }
 
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET || 'nexus_net_runner_secret_key_2024';
+
 // ==========================================
 // MIDDLEWARES (SIEMPRE PRIMERO)
 // ==========================================
 app.use(cors());
 app.use(express.json()); // Permite a Express entender cuerpos JSON en los POST y PUT.
+
+// Middleware de Autenticación por JWT Token
+function autenticarToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.startsWith('Bearer '))
+    ? authHeader.split(' ')[1]
+    : req.headers['x-access-token'] || req.query.token;
+
+  if (!token) {
+    req.usuario = null;
+    return next();
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (!err && decoded) {
+      req.usuario = decoded;
+    } else {
+      req.usuario = null;
+    }
+    next();
+  });
+}
+
+// Middleware de Control de Acceso basado en Roles (RBAC)
+function requerirRol(rolesPermitidos) {
+  return (req, res, next) => {
+    if (!req.usuario) {
+      return res.status(401).json({ error: 'Acceso no autenticado: Token de sesión ausente o inválido.' });
+    }
+    const rol = req.usuario.rol || 'estudiante';
+    if (!rolesPermitidos.includes(rol)) {
+      return res.status(403).json({ error: `Acceso restringido: Se requiere rol ${rolesPermitidos.join(' o ')}.` });
+    }
+    next();
+  };
+}
+
+app.use(autenticarToken);
 
 // ==========================================
 // ENDPOINTS DE AUTENTICACIÓN (LOGIN / REGISTER)
@@ -144,10 +185,17 @@ app.post('/api/auth/register', async (req, res) => {
 
     console.log(`>> [SUCCESS] Nuevo operador creado con éxito: ${correoLimpio} (Nombre: ${nombreAutomatico})`);
 
+    const token = jwt.sign(
+      { id: nuevoUsuario.id, correo: nuevoUsuario.correo, rol: nuevoUsuario.rol },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.status(201).json({
       id: nuevoUsuario.id,
       username: nuevoUsuario.correo,
       rol: nuevoUsuario.rol,
+      token,
       status: 'AUTHORIZED'
     });
   } catch (error) {
@@ -195,10 +243,17 @@ app.post('/api/auth/login', async (req, res) => {
 
     console.log(`>> [SUCCESS] Enlace establecido para: ${identificadorLimpio}`);
 
+    const token = jwt.sign(
+      { id: usuario.id, correo: usuario.correo, rol: usuario.rol },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.json({
       id: usuario.id,
       username: usuario.correo,
       rol: usuario.rol,
+      token,
       status: 'LINK_ESTABLISHED'
     });
   } catch (error) {

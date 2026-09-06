@@ -5,14 +5,15 @@ import UserManagement from './components/UserManagement';
 import GroupManagement from './components/GroupManagement';
 import ProfesorDashboard from './components/ProfesorDashboard';
 import EstudianteDashboard from './components/EstudianteDashboard';
+import QueryLookupModal from './components/QueryLookupModal';
 import AuthScreen from './components/AuthScreen';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/AuthStore';
 
 function DashboardContainer() {
   const { user, logout, loading, isAdmin, isProfesor, isEstudiante } = useAuth();
-
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isLookupOpen, setIsLookupOpen] = useState(false);
 
   if (loading) {
     return (
@@ -26,7 +27,6 @@ function DashboardContainer() {
     return <AuthScreen />;
   }
 
-  // Determinar la pestaña activa según el rol si la pestaña no es válida para el rol
   const getTabLabel = () => {
     if (isEstudiante) return 'ESTUDIANTE_DASHBOARD';
     if (isProfesor) return 'PROFESOR_DASHBOARD';
@@ -168,7 +168,15 @@ function DashboardContainer() {
             <div className="flex items-center gap-8">
               <span className="font-display text-[24px] text-primary italic font-bold">NET_RUNNER_OS</span>
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setIsLookupOpen(true)}
+                className="flex items-center gap-2 font-mono-label text-[12px] uppercase text-primary border border-primary/40 px-3 py-1 hover:bg-primary hover:text-black transition-all cursor-pointer shadow-[0_0_10px_rgba(0,220,230,0.2)]"
+              >
+                <span className="material-symbols-outlined text-[16px]">search</span>
+                Consulta Rápida
+              </button>
+
               <button
                 onClick={logout}
                 className="font-mono-label text-[12px] uppercase text-on-secondary-fixed-variant border border-on-secondary-fixed-variant px-4 py-1 hover:bg-on-secondary-fixed-variant hover:text-white transition-all cursor-pointer"
@@ -205,6 +213,9 @@ function DashboardContainer() {
           </section>
         </main>
       </div>
+
+      {/* Modal de Consulta Rápida */}
+      <QueryLookupModal isOpen={isLookupOpen} onClose={() => setIsLookupOpen(false)} />
     </div>
   );
 }
