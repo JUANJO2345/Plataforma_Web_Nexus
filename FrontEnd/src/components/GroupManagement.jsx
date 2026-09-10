@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthStore';
 
 export default function GroupManagement() {
+  const { authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,12 +17,12 @@ export default function GroupManagement() {
     estudianteIds: []
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [resGrupos, resUsuarios] = await Promise.all([
-        fetch('/api/grupos'),
-        fetch('/api/usuarios')
+        authFetch('/api/grupos'),
+        authFetch('/api/usuarios')
       ]);
 
       if (!resGrupos.ok || !resUsuarios.ok) {
@@ -38,11 +40,11 @@ export default function GroupManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const profesores = usuarios.filter((u) => u.rol === 'profesor');
   const estudiantes = usuarios.filter((u) => u.rol === 'estudiante' || u.rol === 'user');
@@ -78,9 +80,8 @@ export default function GroupManagement() {
         estudianteIds: formData.estudianteIds.map((id) => parseInt(id, 10))
       };
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
@@ -111,7 +112,7 @@ export default function GroupManagement() {
     if (!confirm('¿Seguro que deseas eliminar este grupo?')) return;
 
     try {
-      const res = await fetch(`/api/grupos/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/grupos/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('No se pudo eliminar el grupo.');
       fetchData();
     } catch (err) {

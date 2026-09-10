@@ -75,6 +75,25 @@ const incluirDetallesGrupo = [
   }
 ];
 
+async function validarEstudiantes(ids) {
+  const estudiantes = await Usuario.findAll({
+    where: { id: ids },
+    attributes: ['id', 'rol']
+  });
+  const idsNormalizados = ids.map((id) => Number(id));
+  const sonEstudiantes = estudiantes.length === idsNormalizados.length
+    && estudiantes.every((usuario) => usuario.rol === 'estudiante' || usuario.rol === 'user');
+
+  if (!sonEstudiantes) {
+    throw new Error('Solo se pueden inscribir usuarios con rol de estudiante.');
+  }
+}
+
+function puedeGestionarGrupo(req, grupo) {
+  return req.usuario?.rol === 'admin'
+    || (req.usuario?.rol === 'profesor' && Number(grupo.profesorId) === Number(req.usuario.id));
+}
+
 function serializarPartida(partida) {
   const data = partida.toJSON();
   return {
@@ -496,7 +515,7 @@ app.get('/api/grupos/:id', async (req, res) => {
 });
 
 // Crear un nuevo grupo (código, nombre, profesorId, estudianteIds).
-app.post('/api/grupos', async (req, res) => {
+app.post('/api/grupos', requerirRol(['admin']), async (req, res) => {
   try {
     const { codigo, nombre, profesorId, estudianteIds } = req.body;
     if (!codigo) {
@@ -505,8 +524,8 @@ app.post('/api/grupos', async (req, res) => {
 
     if (profesorId) {
       const profesor = await Usuario.findByPk(profesorId);
-      if (!profesor) {
-        return res.status(400).json({ error: 'El profesor especificado no existe.' });
+      if (!profesor || profesor.rol !== 'profesor') {
+        return res.status(400).json({ error: 'El usuario asignado debe tener el rol de profesor.' });
       }
     }
 
@@ -517,6 +536,7 @@ app.post('/api/grupos', async (req, res) => {
     });
 
     if (Array.isArray(estudianteIds) && estudianteIds.length > 0) {
+      await validarEstudiantes(estudianteIds);
       await nuevoGrupo.setEstudiantes(estudianteIds);
     }
 
@@ -531,7 +551,7 @@ app.post('/api/grupos', async (req, res) => {
 });
 
 // Actualizar un grupo.
-app.put('/api/grupos/:id', async (req, res) => {
+app.put('/api/grupos/:id', requerirRol(['admin']), async (req, res) => {
   try {
     const grupo = await Grupo.findByPk(req.params.id);
     if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
@@ -540,8 +560,8 @@ app.put('/api/grupos/:id', async (req, res) => {
 
     if (profesorId !== undefined && profesorId !== null) {
       const profesor = await Usuario.findByPk(profesorId);
-      if (!profesor) {
-        return res.status(400).json({ error: 'El profesor especificado no existe.' });
+      if (!profesor || profesor.rol !== 'profesor') {
+        return res.status(400).json({ error: 'El usuario asignado debe tener el rol de profesor.' });
       }
     }
 
@@ -553,6 +573,7 @@ app.put('/api/grupos/:id', async (req, res) => {
     await grupo.update(cambios);
 
     if (Array.isArray(estudianteIds)) {
+      await validarEstudiantes(estudianteIds);
       await grupo.setEstudiantes(estudianteIds);
     }
 
@@ -567,10 +588,13 @@ app.put('/api/grupos/:id', async (req, res) => {
 });
 
 // Inscribir estudiante(s) a un grupo.
-app.post('/api/grupos/:id/estudiantes', async (req, res) => {
+app.post('/api/grupos/:id/estudiantes', requerirRol(['admin', 'profesor']), async (req, res) => {
   try {
     const grupo = await Grupo.findByPk(req.params.id);
     if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+    if (!puedeGestionarGrupo(req, grupo)) {
+      return res.status(403).json({ error: 'Solo el profesor asignado puede agregar estudiantes a este grupo.' });
+    }
 
     const ids = Array.isArray(req.body.estudianteIds)
       ? req.body.estudianteIds
@@ -580,6 +604,7 @@ app.post('/api/grupos/:id/estudiantes', async (req, res) => {
       return res.status(400).json({ error: 'Debe proporcionar estudianteId o estudianteIds.' });
     }
 
+    await validarEstudiantes(ids);
     await grupo.addEstudiantes(ids);
 
     const grupoActualizado = await Grupo.findByPk(grupo.id, {
@@ -593,7 +618,7 @@ app.post('/api/grupos/:id/estudiantes', async (req, res) => {
 });
 
 // Desinscribir un estudiante de un grupo.
-app.delete('/api/grupos/:id/estudiantes/:estudianteId', async (req, res) => {
+app.delete('/api/grupos/:id/estudiantes/:estudianteId', requerirRol(['admin']), async (req, res) => {
   try {
     const grupo = await Grupo.findByPk(req.params.id);
     if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
@@ -611,7 +636,7 @@ app.delete('/api/grupos/:id/estudiantes/:estudianteId', async (req, res) => {
 });
 
 // Eliminar un grupo.
-app.delete('/api/grupos/:id', async (req, res) => {
+app.delete('/api/grupos/:id', requerirRol(['admin']), async (req, res) => {
   try {
     const filasBorradas = await Grupo.destroy({ where: { id: req.params.id } });
     if (filasBorradas === 0) return res.status(404).json({ error: 'Grupo no encontrado' });

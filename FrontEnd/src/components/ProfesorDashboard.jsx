@@ -9,32 +9,38 @@ const COMPETENCIAS = [
 ];
 
 export default function ProfesorDashboard() {
-  const { user } = useAuth();
+  const { user, authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [partidas, setPartidas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [grupoSeleccionado, setGrupoSeleccionado] = useState(null);
   const [busqueda, setBusqueda] = useState('');
+  const [estudiantesDisponibles, setEstudiantesDisponibles] = useState([]);
+  const [busquedaAgregar, setBusquedaAgregar] = useState('');
+  const [agregandoId, setAgregandoId] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [resGrupos, resPartidas] = await Promise.all([
-          fetch(`/api/grupos?profesorId=${user.id}`),
-          fetch('/api/partidas')
+        const [resGrupos, resPartidas, resUsuarios] = await Promise.all([
+          authFetch(`/api/grupos?profesorId=${user.id}`),
+          fetch('/api/partidas'),
+          authFetch('/api/usuarios')
         ]);
 
-        if (!resGrupos.ok || !resPartidas.ok) {
+        if (!resGrupos.ok || !resPartidas.ok || !resUsuarios.ok) {
           throw new Error('No se pudo establecer enlace con los datos del profesor.');
         }
 
         const dataGrupos = await resGrupos.json();
         const dataPartidas = await resPartidas.json();
+        const dataUsuarios = await resUsuarios.json();
 
         setGrupos(dataGrupos);
         setPartidas(dataPartidas);
+        setEstudiantesDisponibles(dataUsuarios.filter((u) => u.rol === 'estudiante' || u.rol === 'user'));
 
         if (dataGrupos.length > 0) {
           setGrupoSeleccionado(dataGrupos[0]);
@@ -50,7 +56,31 @@ export default function ProfesorDashboard() {
     if (user?.id) {
       fetchData();
     }
-  }, [user]);
+  }, [user, authFetch]);
+
+  const agregarEstudiante = async (estudianteId) => {
+    if (!grupoSeleccionado) return;
+
+    try {
+      setAgregandoId(estudianteId);
+      const res = await authFetch(`/api/grupos/${grupoSeleccionado.id}/estudiantes`, {
+        method: 'POST',
+        body: JSON.stringify({ estudianteId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo agregar el estudiante.');
+
+      setGrupos((current) => current.map((grupo) => (
+        grupo.id === data.grupo.id ? data.grupo : grupo
+      )));
+      setGrupoSeleccionado(data.grupo);
+      setBusquedaAgregar('');
+    } catch (err) {
+      alert(`[!] STUDENT_ENROLLMENT_ERROR: ${err.message}`);
+    } finally {
+      setAgregandoId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -85,6 +115,13 @@ export default function ProfesorDashboard() {
   }
 
   const estudiantesGrupo = grupoSeleccionado?.estudiantes || [];
+  const estudiantesNoInscritos = estudiantesDisponibles.filter((estudiante) => (
+    !estudiantesGrupo.some((inscrito) => inscrito.id === estudiante.id)
+  ));
+  const candidatosEncontrados = busquedaAgregar.trim() === '' ? [] : estudiantesNoInscritos.filter((estudiante) => {
+    const termino = busquedaAgregar.toLowerCase();
+    return estudiante.nombre?.toLowerCase().includes(termino) || estudiante.correo?.toLowerCase().includes(termino);
+  });
 
   // Filtrar estudiantes por búsqueda
   const estudiantesFiltrados = estudiantesGrupo.filter((e) => {
@@ -149,6 +186,7 @@ export default function ProfesorDashboard() {
               onClick={() => {
                 setGrupoSeleccionado(g);
                 setBusqueda('');
+                setBusquedaAgregar('');
               }}
               className={`px-3 py-1.5 font-mono-label text-[11px] uppercase font-bold transition-all cursor-pointer border ${
                 grupoSeleccionado?.id === g.id
@@ -160,6 +198,49 @@ export default function ProfesorDashboard() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="border border-orange-400/30 bg-surface-container-low/40 p-6 backdrop-blur-md space-y-4">
+        <div>
+          <h3 className="font-mono-label text-orange-400 text-[13px] font-bold uppercase tracking-wider">
+            // AGREGAR_ESTUDIANTES_AL_GRUPO
+          </h3>
+          <p className="font-mono-label text-[11px] text-on-surface-variant/60 mt-1">
+            Busca un estudiante y agrégalo a {grupoSeleccionado?.codigo}.
+          </p>
+        </div>
+        <div className="relative max-w-xl">
+          <input
+            type="search"
+            value={busquedaAgregar}
+            onChange={(e) => setBusquedaAgregar(e.target.value)}
+            placeholder="Buscar por nombre o correo..."
+            className="w-full bg-surface-container border border-orange-400/30 px-3 py-2 pr-9 font-mono-label text-[12px] text-on-surface focus:outline-none focus:border-orange-400 transition-all"
+          />
+          <span className="material-symbols-outlined text-[16px] text-orange-400 absolute right-3 top-2.5">search</span>
+        </div>
+        {busquedaAgregar.trim() !== '' && (
+          <div className="max-w-xl border border-orange-400/20 divide-y divide-orange-400/10">
+            {candidatosEncontrados.length === 0 ? (
+              <div className="p-3 font-mono-label text-[11px] text-on-surface-variant/60">No hay estudiantes disponibles que coincidan.</div>
+            ) : candidatosEncontrados.map((estudiante) => (
+              <div key={estudiante.id} className="flex items-center justify-between gap-3 p-3">
+                <div className="min-w-0">
+                  <div className="text-[13px] text-on-surface font-bold truncate">{estudiante.nombre || 'Estudiante'}</div>
+                  <div className="font-mono-label text-[11px] text-primary truncate">{estudiante.correo}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => agregarEstudiante(estudiante.id)}
+                  disabled={agregandoId === estudiante.id}
+                  className="shrink-0 px-3 py-1.5 border border-orange-400/50 text-orange-400 text-[10px] uppercase font-bold hover:bg-orange-400 hover:text-black disabled:opacity-50 transition-all cursor-pointer"
+                >
+                  {agregandoId === estudiante.id ? 'Agregando...' : 'Agregar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Tarjetas de Métricas Ejecutivas del Grupo */}
