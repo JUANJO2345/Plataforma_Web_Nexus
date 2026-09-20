@@ -1,15 +1,5 @@
 const bcrypt = require('bcrypt');
-const sequelize = require('./config/database');
-const Usuario = require('./models/Usuario');
-const Partida = require('./models/Partida');
-const Grupo = require('./models/Grupo');
-const GrupoEstudiante = require('./models/GrupoEstudiante');
-
-// Setup relations for seed execution
-Grupo.belongsTo(Usuario, { foreignKey: 'profesorId', as: 'profesor' });
-Usuario.hasMany(Grupo, { foreignKey: 'profesorId', as: 'gruposImpartidos' });
-Grupo.belongsToMany(Usuario, { through: GrupoEstudiante, foreignKey: 'grupoId', otherKey: 'estudianteId', as: 'estudiantes' });
-Usuario.belongsToMany(Grupo, { through: GrupoEstudiante, foreignKey: 'estudianteId', otherKey: 'grupoId', as: 'gruposInscritos' });
+const { sequelize, Usuario, Partida, Grupo } = require('./models');
 
 async function main() {
   try {
