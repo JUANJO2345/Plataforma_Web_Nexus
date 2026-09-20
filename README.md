@@ -24,6 +24,9 @@ Plataforma_Web_Nexus/
 
 - Registro e inicio de sesión de usuarios.
 - Autenticación mediante tokens JWT y cifrado de contraseñas con bcrypt.
+- Protección de endpoints y seguridad (JWT, RBAC, `.env`).
+- Desacoplamiento y modularización del backend (modelos, middlewares, controladores y rutas en capas).
+- Enrutamiento del frontend con React Router v7 (rutas protegidas por rol, URL amigables y navegación persistente).
 - Gestión de usuarios desde una vista administrativa.
 - Creación, edición y eliminación de grupos.
 - Asignación de profesores y estudiantes a los grupos.
@@ -43,16 +46,12 @@ El sistema trabaja con cuatro entidades principales:
 - `Grupo`: representa una clase o grupo de estudiantes.
 - `GrupoEstudiante`: relaciona los estudiantes inscritos con sus grupos.
 
-Cada partida pertenece a un usuario mediante la relación `Usuario.hasMany(Partida)` y `Partida.belongsTo(Usuario)`. Esto permite consultar el historial de cada estudiante de forma más consistente.
-
-Cada grupo puede tener un profesor asignado y varios estudiantes inscritos. La relación entre grupos y estudiantes se administra mediante la entidad `GrupoEstudiante`.
+Cada partida pertenece a un usuario mediante la relación `Usuario.hasMany(Partida)` y `Partida.belongsTo(Usuario)`. Cada grupo puede tener un profesor asignado y varios estudiantes inscritos mediante `GrupoEstudiante`.
 
 ## Roles y Permisos
 
-La plataforma cuenta con tres roles principales:
-
 - `admin`: administra usuarios y grupos; puede crear, editar y eliminar grupos, asignar profesores e inscribir estudiantes directamente.
-- `profesor`: consulta los grupos que tiene asignados, visualiza el desempeño de sus estudiantes y puede buscar e inscribir estudiantes en sus propios grupos.
+- `profesor`: consulta los grupos asignados, visualiza el desempeño de sus estudiantes y puede buscar e inscribir estudiantes en sus propios grupos.
 - `estudiante`: consulta los grupos en los que está inscrito y su historial de partidas.
 
 Las operaciones de administración de grupos están protegidas en el backend. Un profesor solo puede agregar estudiantes al grupo que tiene asignado.
@@ -66,31 +65,23 @@ git clone https://github.com/JUANJO2345/Nexus_Plataforma_Web.git
 cd Nexus_Plataforma_Web
 ```
 
-### 2. Configurar el Backend
+### 2. Backend
 
 ```bash
 cd Backend
 npm install
-npm start
+npm start   # servidor API en http://localhost:3000
 ```
 
-El servidor API se ejecuta por defecto en:
-
-```text
-http://localhost:3000
-```
-
-### 3. Configurar el Frontend
+### 3. Frontend
 
 En una segunda terminal:
 
 ```bash
 cd FrontEnd
 npm install
-npm run dev
+npm run dev   # Vite mostrará la URL local, por ejemplo http://localhost:5173
 ```
-
-Vite mostrará la URL local para acceder a la interfaz web.
 
 ## Notas de Desarrollo
 
