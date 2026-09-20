@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
@@ -160,6 +161,14 @@ function requerirRol(rolesPermitidos) {
   };
 }
 
+// Middleware para requerir cualquier usuario autenticado
+function requerirAutenticacion(req, res, next) {
+  if (!req.usuario) {
+    return res.status(401).json({ error: 'Acceso no autenticado: Token de sesión ausente o inválido.' });
+  }
+  next();
+}
+
 app.use(autenticarToken);
 
 // ==========================================
@@ -286,7 +295,7 @@ app.post('/api/auth/login', async (req, res) => {
 // ==========================================
 
 // Obtener todas las partidas con su operador asociado.
-app.get('/api/partidas', async (req, res) => {
+app.get('/api/partidas', requerirAutenticacion, async (req, res) => {
   try {
     const partidas = await Partida.findAll({
       include: [incluirUsuarioEnPartida],
@@ -300,7 +309,7 @@ app.get('/api/partidas', async (req, res) => {
 });
 
 // Obtener una partida específica por ID.
-app.get('/api/partidas/:id', async (req, res) => {
+app.get('/api/partidas/:id', requerirAutenticacion, async (req, res) => {
   try {
     const partida = await Partida.findByPk(req.params.id, {
       include: [incluirUsuarioEnPartida]
@@ -316,9 +325,19 @@ app.get('/api/partidas/:id', async (req, res) => {
 });
 
 // Crear o registrar una partida asociada a un operador existente.
-app.post('/api/partidas', async (req, res) => {
+app.post('/api/partidas', requerirAutenticacion, async (req, res) => {
   try {
-    const usuario = await buscarUsuarioParaPartida(req.body);
+    let usuario;
+    if (req.usuario.rol === 'admin') {
+      usuario = await buscarUsuarioParaPartida(req.body);
+      if (!usuario) {
+        usuario = await Usuario.findByPk(req.usuario.id);
+      }
+    } else {
+      // Los estudiantes/operadores solo registran partidas bajo su propia identidad autenticada
+      usuario = await Usuario.findByPk(req.usuario.id);
+    }
+
     if (!usuario) {
       return res.status(400).json({ error: 'Debe asignarse un operador registrado a la partida.' });
     }
@@ -340,15 +359,20 @@ app.post('/api/partidas', async (req, res) => {
 });
 
 // Actualizar una partida existente.
-app.put('/api/partidas/:id', async (req, res) => {
+app.put('/api/partidas/:id', requerirAutenticacion, async (req, res) => {
   try {
     const partida = await Partida.findByPk(req.params.id);
     if (!partida) return res.status(404).json({ error: 'Partida no encontrada' });
 
+    // Solo admin o el propio usuario dueño de la partida puede modificarla
+    if (req.usuario.rol !== 'admin' && Number(partida.usuarioId) !== Number(req.usuario.id)) {
+      return res.status(403).json({ error: 'Acceso denegado: No tienes permiso para modificar esta partida.' });
+    }
+
     const cambios = {};
     if (req.body.stage) cambios.stage = req.body.stage;
 
-    if (req.body.usuarioId || req.body.username || req.body.correo) {
+    if (req.usuario.rol === 'admin' && (req.body.usuarioId || req.body.username || req.body.correo)) {
       const usuario = await buscarUsuarioParaPartida(req.body);
       if (!usuario) {
         return res.status(400).json({ error: 'El operador asignado no existe.' });
@@ -373,7 +397,7 @@ app.put('/api/partidas/:id', async (req, res) => {
 });
 
 // Eliminar una partida.
-app.delete('/api/partidas/:id', async (req, res) => {
+app.delete('/api/partidas/:id', requerirRol(['admin']), async (req, res) => {
   try {
     const filasBorradas = await Partida.destroy({ where: { id: req.params.id } });
     if (filasBorradas === 0) return res.status(404).json({ error: 'Partida no encontrada' });
@@ -389,7 +413,7 @@ app.delete('/api/partidas/:id', async (req, res) => {
 // ==========================================
 
 // Obtener todos los usuarios.
-app.get('/api/usuarios', async (req, res) => {
+app.get('/api/usuarios', requerirRol(['admin', 'profesor']), async (req, res) => {
   try {
     const usuarios = await Usuario.findAll({
       attributes: { exclude: ['contrasena'] },
@@ -402,8 +426,12 @@ app.get('/api/usuarios', async (req, res) => {
 });
 
 // Obtener un usuario por ID.
-app.get('/api/usuarios/:id', async (req, res) => {
+app.get('/api/usuarios/:id', requerirAutenticacion, async (req, res) => {
   try {
+    if (req.usuario.rol !== 'admin' && Number(req.usuario.id) !== Number(req.params.id)) {
+      return res.status(403).json({ error: 'Acceso denegado: No tienes permiso para consultar este usuario.' });
+    }
+
     const usuario = await Usuario.findByPk(req.params.id, {
       attributes: { exclude: ['contrasena'] }
     });
@@ -415,7 +443,7 @@ app.get('/api/usuarios/:id', async (req, res) => {
 });
 
 // Crear usuario desde el CRUD de admin. También cifra la contraseña.
-app.post('/api/usuarios', async (req, res) => {
+app.post('/api/usuarios', requerirRol(['admin']), async (req, res) => {
   try {
     const { correo, contrasena, nombre, rol } = req.body;
     if (!correo || !contrasena) {
@@ -440,10 +468,19 @@ app.post('/api/usuarios', async (req, res) => {
 });
 
 // Actualizar usuario.
-app.put('/api/usuarios/:id', async (req, res) => {
+app.put('/api/usuarios/:id', requerirAutenticacion, async (req, res) => {
   try {
+    if (req.usuario.rol !== 'admin' && Number(req.usuario.id) !== Number(req.params.id)) {
+      return res.status(403).json({ error: 'Acceso denegado: No tienes permiso para modificar este usuario.' });
+    }
+
     const usuario = await Usuario.findByPk(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    // Solo admin puede modificar el rol del usuario
+    if (req.body.rol && req.usuario.rol !== 'admin') {
+      delete req.body.rol;
+    }
 
     // Si en la actualización viene una contraseña nueva no vacía, se cifra antes de guardar.
     if (req.body.contrasena && typeof req.body.contrasena === 'string' && req.body.contrasena.trim() !== '') {
@@ -461,7 +498,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
 });
 
 // Eliminar usuario.
-app.delete('/api/usuarios/:id', async (req, res) => {
+app.delete('/api/usuarios/:id', requerirRol(['admin']), async (req, res) => {
   try {
     const filasBorradas = await Usuario.destroy({ where: { id: req.params.id } });
     if (filasBorradas === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
@@ -477,7 +514,7 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 // ==========================================
 
 // Obtener todos los grupos con su profesor y estudiantes inscritos.
-app.get('/api/grupos', async (req, res) => {
+app.get('/api/grupos', requerirAutenticacion, async (req, res) => {
   try {
     const whereClause = {};
     if (req.query.profesorId) {
@@ -490,9 +527,14 @@ app.get('/api/grupos', async (req, res) => {
       order: [['id', 'ASC']]
     });
 
-    if (req.query.estudianteId) {
-      const estId = parseInt(req.query.estudianteId, 10);
-      grupos = grupos.filter(g => g.estudiantes && g.estudiantes.some(e => e.id === estId));
+    const rol = req.usuario.rol || 'estudiante';
+    // Si el usuario es estudiante u operador, solo puede ver los grupos en los que está inscrito
+    const estudianteIdFiltro = (rol === 'estudiante' || rol === 'user')
+      ? Number(req.usuario.id)
+      : req.query.estudianteId ? parseInt(req.query.estudianteId, 10) : null;
+
+    if (estudianteIdFiltro) {
+      grupos = grupos.filter(g => g.estudiantes && g.estudiantes.some(e => Number(e.id) === estudianteIdFiltro));
     }
 
     res.json(grupos);
@@ -502,12 +544,21 @@ app.get('/api/grupos', async (req, res) => {
 });
 
 // Obtener un grupo por ID.
-app.get('/api/grupos/:id', async (req, res) => {
+app.get('/api/grupos/:id', requerirAutenticacion, async (req, res) => {
   try {
     const grupo = await Grupo.findByPk(req.params.id, {
       include: incluirDetallesGrupo
     });
     if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+
+    const rol = req.usuario.rol || 'estudiante';
+    if (rol === 'estudiante' || rol === 'user') {
+      const estaInscrito = grupo.estudiantes && grupo.estudiantes.some(e => Number(e.id) === Number(req.usuario.id));
+      if (!estaInscrito) {
+        return res.status(403).json({ error: 'Acceso restringido: No perteneces a este grupo.' });
+      }
+    }
+
     res.json(grupo);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener el grupo por ID', detalle: error.message });
@@ -618,10 +669,13 @@ app.post('/api/grupos/:id/estudiantes', requerirRol(['admin', 'profesor']), asyn
 });
 
 // Desinscribir un estudiante de un grupo.
-app.delete('/api/grupos/:id/estudiantes/:estudianteId', requerirRol(['admin']), async (req, res) => {
+app.delete('/api/grupos/:id/estudiantes/:estudianteId', requerirRol(['admin', 'profesor']), async (req, res) => {
   try {
     const grupo = await Grupo.findByPk(req.params.id);
     if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
+    if (!puedeGestionarGrupo(req, grupo)) {
+      return res.status(403).json({ error: 'Acceso denegado: Solo el profesor asignado o un admin puede remover estudiantes de este grupo.' });
+    }
 
     await grupo.removeEstudiante(req.params.estudianteId);
 
@@ -650,7 +704,7 @@ app.delete('/api/grupos/:id', requerirRol(['admin']), async (req, res) => {
 // ==========================================
 // CONEXIÓN Y ARRANQUE DEL SISTEMA
 // ==========================================
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 sequelize.sync()
   .then(() => {
     console.log('\n==================================================');

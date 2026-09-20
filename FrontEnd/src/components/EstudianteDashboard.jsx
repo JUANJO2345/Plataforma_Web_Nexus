@@ -23,7 +23,7 @@ function obtenerMetricsNivel(stage, zonaKey, nivelKey) {
 }
 
 export default function EstudianteDashboard() {
-  const { user } = useAuth();
+  const { user, authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [partidas, setPartidas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,8 +34,8 @@ export default function EstudianteDashboard() {
       try {
         setLoading(true);
         const [resGrupos, resPartidas] = await Promise.all([
-          fetch(`/api/grupos?estudianteId=${user.id}`),
-          fetch('/api/partidas')
+          authFetch(`/api/grupos?estudianteId=${user.id}`),
+          authFetch('/api/partidas')
         ]);
 
         if (!resGrupos.ok || !resPartidas.ok) {
@@ -58,7 +58,7 @@ export default function EstudianteDashboard() {
     if (user?.id) {
       fetchData();
     }
-  }, [user]);
+  }, [user, authFetch]);
 
   if (loading) {
     return (

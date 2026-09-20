@@ -26,7 +26,7 @@ export default function ProfesorDashboard() {
         setLoading(true);
         const [resGrupos, resPartidas, resUsuarios] = await Promise.all([
           authFetch(`/api/grupos?profesorId=${user.id}`),
-          fetch('/api/partidas'),
+          authFetch('/api/partidas'),
           authFetch('/api/usuarios')
         ]);
 

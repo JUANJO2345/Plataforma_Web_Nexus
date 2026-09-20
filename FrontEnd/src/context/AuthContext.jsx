@@ -23,7 +23,11 @@ export function AuthProvider({ children }) {
     if (user?.token) {
       headers['Authorization'] = `Bearer ${user.token}`;
     }
-    return fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401 && user) {
+      logout();
+    }
+    return res;
   };
 
   const login = async (username, password) => {

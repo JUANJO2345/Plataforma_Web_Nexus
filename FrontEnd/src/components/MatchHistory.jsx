@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthStore';
 
 export default function MatchHistory() {
+  const { authFetch } = useAuth();
   const [partidas, setPartidas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,12 +36,12 @@ export default function MatchHistory() {
     patr_n4_pts: '0', patr_n4_time: '0',
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [resPartidas, resUsuarios] = await Promise.all([
-        fetch('/api/partidas'),
-        fetch('/api/usuarios')
+        authFetch('/api/partidas'),
+        authFetch('/api/usuarios')
       ]);
       if (!resPartidas.ok || !resUsuarios.ok) throw new Error('Fallo en la sincronización del núcleo de datos.');
       
@@ -51,7 +53,7 @@ export default function MatchHistory() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -104,13 +106,15 @@ export default function MatchHistory() {
       const url = isEditing ? `/api/partidas/${selectedId}` : '/api/partidas';
       const method = isEditing ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: formData.username, stage: stagePayload })
       });
 
-      if (!res.ok) throw new Error('Fallo en la inyección de la telemetría.');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Fallo en la inyección de la telemetría.');
+      }
 
       // Limpieza de estado.
       resetForm();
@@ -164,7 +168,11 @@ export default function MatchHistory() {
   const handleDelete = async (id) => {
     if (!confirm('¿Borrar registro definitivo?')) return;
     try {
-      await fetch(`/api/partidas/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/partidas/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Error al eliminar la partida');
+      }
       fetchData();
     } catch (err) { alert(err.message); }
   };

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthStore';
 import LeaderboardTables from './LeaderboardTables';
 
 export default function DashboardHome() {
+  const { authFetch } = useAuth();
   const [partidas, setPartidas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -10,7 +12,7 @@ export default function DashboardHome() {
     const fetchPartidas = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/partidas');
+        const res = await authFetch('/api/partidas');
         if (!res.ok) throw new Error('No se pudo establecer enlace con la telemetría central.');
         const data = await res.json();
         setPartidas(data);
@@ -23,7 +25,7 @@ export default function DashboardHome() {
     };
 
     fetchPartidas();
-  }, []);
+  }, [authFetch]);
 
   if (loading) {
     return (

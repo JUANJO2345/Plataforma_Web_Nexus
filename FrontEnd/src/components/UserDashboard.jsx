@@ -23,7 +23,7 @@ function obtenerMetricsNivel(stage, zonaKey, nivelKey) {
 }
 
 export default function UserDashboard() {
-  const { user } = useAuth();
+  const { user, authFetch } = useAuth();
   const [partidas, setPartidas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,7 +34,7 @@ export default function UserDashboard() {
     const fetchPartidas = async () => {
       try {
         setLoading(true);
-        const res = await fetch('/api/partidas');
+        const res = await authFetch('/api/partidas');
         if (!res.ok) throw new Error('No se pudo cargar la telemetría.');
         setPartidas(await res.json());
         setError(null);
@@ -46,7 +46,7 @@ export default function UserDashboard() {
     };
 
     fetchPartidas();
-  }, []);
+  }, [authFetch]);
 
   if (loading) {
     return (

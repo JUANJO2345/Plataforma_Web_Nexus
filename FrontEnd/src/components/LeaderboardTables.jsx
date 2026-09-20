@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthStore';
 
 const ZONAS = [
   { titulo: 'Abstracción', key: 'abstraccion', color: 'text-primary', border: 'border-primary/30' },
@@ -113,13 +114,14 @@ function TablaZona({ titulo, zonaKey, colorTexto, colorBorde, partidas, highligh
 }
 
 export default function LeaderboardTables({ partidas, highlightUsername }) {
+  const { authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [grupoIdSeleccionado, setGrupoIdSeleccionado] = useState('global');
 
   useEffect(() => {
     const fetchGrupos = async () => {
       try {
-        const res = await fetch('/api/grupos');
+        const res = await authFetch('/api/grupos');
         if (res.ok) {
           const data = await res.json();
           setGrupos(data);
@@ -129,7 +131,7 @@ export default function LeaderboardTables({ partidas, highlightUsername }) {
       }
     };
     fetchGrupos();
-  }, []);
+  }, [authFetch]);
 
   // Filtrar partidas por grupo seleccionado
   const partidasFiltradas = grupoIdSeleccionado === 'global'

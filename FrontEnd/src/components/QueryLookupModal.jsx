@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthStore';
 
 export default function QueryLookupModal({ isOpen, onClose }) {
+  const { authFetch } = useAuth();
   const [query, setQuery] = useState('');
   const [usuarios, setUsuarios] = useState([]);
   const [grupos, setGrupos] = useState([]);
@@ -13,9 +15,9 @@ export default function QueryLookupModal({ isOpen, onClose }) {
         try {
           setLoading(true);
           const [resU, resG, resP] = await Promise.all([
-            fetch('/api/usuarios'),
-            fetch('/api/grupos'),
-            fetch('/api/partidas')
+            authFetch('/api/usuarios'),
+            authFetch('/api/grupos'),
+            authFetch('/api/partidas')
           ]);
 
           if (resU.ok) setUsuarios(await resU.json());
@@ -30,7 +32,7 @@ export default function QueryLookupModal({ isOpen, onClose }) {
 
       loadAllData();
     }
-  }, [isOpen]);
+  }, [isOpen, authFetch]);
 
   if (!isOpen) return null;
 

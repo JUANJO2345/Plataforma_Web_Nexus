@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthStore';
 
 export default function UserManagement() {
+  const { authFetch } = useAuth();
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -11,11 +13,14 @@ export default function UserManagement() {
   const [formData, setFormData] = useState({ correo: '', contrasena: '', nombre: '', rol: 'estudiante' });
 
   // Cargar usuarios al montar el componente.
-  const fetchUsuarios = async () => {
+  const fetchUsuarios = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/usuarios');
-      if (!res.ok) throw new Error('No se pudo establecer conexión con el nodo de usuarios.');
+      const res = await authFetch('/api/usuarios');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'No se pudo establecer conexión con el nodo de usuarios.');
+      }
       const data = await res.json();
       setUsuarios(data);
       setError(null);
@@ -24,11 +29,11 @@ export default function UserManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
     fetchUsuarios();
-  }, []);
+  }, [fetchUsuarios]);
 
   // Manejar cambios en los inputs.
   const handleChange = (e) => {
@@ -50,13 +55,15 @@ export default function UserManagement() {
       const payload = { ...formData };
       if (isEditing && !payload.contrasena) delete payload.contrasena;
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error('Fallo en la escritura de base de datos.');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Fallo en la escritura de base de datos.');
+      }
 
       // Limpiar formulario y recargar lista.
       setFormData({ correo: '', contrasena: '', nombre: '', rol: 'estudiante' });
@@ -85,8 +92,11 @@ export default function UserManagement() {
     if (!confirm('¿Seguro que deseas desvincular a este usuario del sistema?')) return;
 
     try {
-      const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('No se pudo eliminar el registro.');
+      const res = await authFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'No se pudo eliminar el registro.');
+      }
       fetchUsuarios();
     } catch (err) {
       alert(`[!] CRITICAL_DELETE_ERROR: ${err.message}`);
