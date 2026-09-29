@@ -39,14 +39,16 @@ Plataforma_Web_Nexus/
 
 ## Modelo de Datos
 
-El sistema trabaja con cuatro entidades principales:
+El sistema trabaja con estas entidades principales:
 
 - `Usuario`: representa a un administrador, profesor o estudiante registrado.
-- `Partida`: representa una sesión de evaluación cognitiva.
+- `Partida`: representa una sesión de evaluación cognitiva asociada a un usuario.
+- `Etapa` y `Nivel`: definen el catálogo del juego; cada etapa puede tener una cantidad distinta de niveles.
+- `ResultadoNivel`: almacena el puntaje y el tiempo de un nivel jugado en una partida.
 - `Grupo`: representa una clase o grupo de estudiantes.
 - `GrupoEstudiante`: relaciona los estudiantes inscritos con sus grupos.
 
-Cada partida pertenece a un usuario mediante la relación `Usuario.hasMany(Partida)` y `Partida.belongsTo(Usuario)`. Cada grupo puede tener un profesor asignado y varios estudiantes inscritos mediante `GrupoEstudiante`.
+Cada partida pertenece a un usuario mediante `Usuario.hasMany(Partida)`. Sus resultados conectan la partida con un nivel; el nivel pertenece a una etapa. El endpoint autenticado `GET /api/partidas/catalogo` devuelve las etapas y niveles activos. El detalle del modelo, rutas, permisos y seed se encuentra en [Backend/README.md](Backend/README.md).
 
 ## Roles y Permisos
 

@@ -1,14 +1,29 @@
 require('dotenv').config();
 const app = require('./app');
 const { sequelize } = require('./models');
+const { inicializarPartidas } = require('./database/migrarPartidas');
 
 const PORT = process.env.PORT || 3000;
 
-sequelize.sync()
-  .then(() => {
-    console.log('\n==================================================');
-    console.log('Conectado a SQLite mediante Sequelize');
-    app.listen(PORT, () => console.log(`Servidor API REST corriendo en http://localhost:${PORT}`));
-    console.log('==================================================\n');
-  })
-  .catch(err => console.error('No se pudo conectar a la base de datos:', err));
+async function iniciarServidor() {
+  try {
+    await sequelize.sync();
+    await inicializarPartidas();
+
+    const servidor = app.listen(PORT, () => {
+      console.log(`API conectada a SQLite y escuchando en http://localhost:${PORT}`);
+    });
+
+    servidor.on('error', async (error) => {
+      console.error('No se pudo iniciar el servidor:', error);
+      await sequelize.close();
+      process.exitCode = 1;
+    });
+  } catch (error) {
+    console.error('No se pudo preparar la base de datos:', error);
+    await sequelize.close();
+    process.exitCode = 1;
+  }
+}
+
+iniciarServidor();

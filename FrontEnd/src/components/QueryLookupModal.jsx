@@ -177,8 +177,8 @@ export default function QueryLookupModal({ isOpen, onClose }) {
                           <span className="font-bold text-secondary">Partida #{String(p.id).padStart(4, '0')}</span>
                           <span className="text-on-surface-variant">{p.username}</span>
                         </div>
-                        <div className="font-mono text-[10px] text-on-surface-variant/70 truncate">
-                          {typeof p.stage === 'object' ? JSON.stringify(p.stage) : p.stage}
+                        <div className="font-mono text-[10px] text-on-surface-variant/70">
+                          {(p.resultados || []).map((resultado) => `${resultado.nivel?.etapa?.nombre || 'Etapa'} · ${resultado.nivel?.nombre || 'Nivel'}: ${resultado.puntaje} pts / ${resultado.tiempoSegundos}s`).join(' · ') || 'Sin resultados de nivel'}
                         </div>
                       </div>
                     ))}

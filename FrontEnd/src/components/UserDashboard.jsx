@@ -1,26 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthStore';
 import LeaderboardTables from './LeaderboardTables';
+import { agruparResultadosPorEtapa } from '../utils/partidas';
 
-const ZONAS = [
-  { key: 'abstraccion', label: 'Abstracción', color: 'text-primary', border: 'border-primary/30' },
-  { key: 'pensamiento_computacional', label: 'Pensamiento Computacional', color: 'text-secondary', border: 'border-secondary/30' },
-  { key: 'descomposicion', label: 'Descomposición', color: 'text-orange-400', border: 'border-orange-400/30' },
-  { key: 'reconocimiento_patrones', label: 'Reconocimiento de Patrones', color: 'text-pink-400', border: 'border-pink-400/30' },
+const COLORES_ETAPA = [
+  { color: 'text-primary', border: 'border-primary/30' },
+  { color: 'text-secondary', border: 'border-secondary/30' },
+  { color: 'text-orange-400', border: 'border-orange-400/30' },
+  { color: 'text-pink-400', border: 'border-pink-400/30' },
 ];
-
-const NIVELES = [
-  { key: 'n1', label: 'Nivel 1' },
-  { key: 'n2', label: 'Nivel 2' },
-  { key: 'n3', label: 'Nivel 3' },
-  { key: 'n4', label: 'Nivel 4' },
-];
-
-function obtenerMetricsNivel(stage, zonaKey, nivelKey) {
-  const nivel = stage?.[zonaKey]?.[nivelKey];
-  if (!nivel || (nivel.puntaje === 0 && nivel.tiempo_seg === 0)) return null;
-  return nivel;
-}
 
 export default function UserDashboard() {
   const { user, authFetch } = useAuth();
@@ -64,10 +52,8 @@ export default function UserDashboard() {
     );
   }
 
-  const stage = partida && typeof partida.stage === 'object' ? partida.stage : {};
-  const calcularTotalZona = (zonaKey) =>
-    NIVELES.reduce((acc, { key }) => acc + (obtenerMetricsNivel(stage, zonaKey, key)?.puntaje || 0), 0);
-  const totalGeneral = ZONAS.reduce((acc, { key }) => acc + calcularTotalZona(key), 0);
+  const etapasPartida = agruparResultadosPorEtapa(partida);
+  const totalGeneral = etapasPartida.reduce((total, etapa) => total + etapa.puntajeTotal, 0);
 
   return (
     <div className="space-y-8">
@@ -93,31 +79,20 @@ export default function UserDashboard() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {ZONAS.map(({ key, label, color, border }) => {
-              const totalZona = calcularTotalZona(key);
+            {etapasPartida.map((etapa, index) => {
+              const { color, border } = COLORES_ETAPA[index % COLORES_ETAPA.length];
               return (
-                <div key={key} className={`border ${border} bg-surface-container-low/40 p-6 backdrop-blur-md`}>
+                <div key={etapa.clave} className={`border ${border} bg-surface-container-low/40 p-6 backdrop-blur-md`}>
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className={`font-mono-label ${color} text-[13px] font-bold uppercase`}>{label}</h3>
-                    <span className="font-mono-label text-[11px] text-on-surface-variant">{totalZona} pts</span>
+                    <h3 className={`font-mono-label ${color} text-[13px] font-bold uppercase`}>{etapa.nombre}</h3>
+                    <span className="font-mono-label text-[11px] text-on-surface-variant">{etapa.puntajeTotal} pts</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    {NIVELES.map(({ key: nKey, label: nLabel }) => {
-                      const metrics = obtenerMetricsNivel(stage, key, nKey);
-                      return (
-                        <div key={nKey} className="bg-surface-container/50 border border-primary/10 p-3">
-                          <div className="font-mono-label text-[10px] text-on-surface-variant uppercase mb-1">{nLabel}</div>
-                          {metrics ? (
-                            <>
-                              <div className={`font-bold text-[14px] ${color}`}>{metrics.puntaje} pts</div>
-                              <div className="font-mono-label text-[10px] text-on-surface-variant/70">{metrics.tiempo_seg}s</div>
-                            </>
-                          ) : (
-                            <div className="font-mono-label text-[11px] text-on-surface-variant/30">--</div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {etapa.niveles.map((nivel) => <div key={nivel.nivelId} className="bg-surface-container/50 border border-primary/10 p-3">
+                      <div className="font-mono-label text-[10px] text-on-surface-variant uppercase mb-1">{nivel.nivelNombre}</div>
+                      <div className={`font-bold text-[14px] ${color}`}>{nivel.puntaje} pts</div>
+                      <div className="font-mono-label text-[10px] text-on-surface-variant/70">{nivel.tiempoSegundos}s</div>
+                    </div>)}
                   </div>
                 </div>
               );

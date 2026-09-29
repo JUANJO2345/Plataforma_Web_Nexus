@@ -1,6 +1,9 @@
 const sequelize = require('../config/database');
 const Usuario = require('./Usuario');
 const Partida = require('./Partida');
+const Etapa = require('./Etapa');
+const Nivel = require('./Nivel');
+const ResultadoNivel = require('./ResultadoNivel');
 const Grupo = require('./Grupo');
 const GrupoEstudiante = require('./GrupoEstudiante');
 
@@ -20,6 +23,13 @@ Partida.belongsTo(Usuario, {
   foreignKey: 'usuarioId',
   as: 'usuario'
 });
+
+Etapa.hasMany(Nivel, { foreignKey: 'etapaId', as: 'niveles', onDelete: 'CASCADE' });
+Nivel.belongsTo(Etapa, { foreignKey: 'etapaId', as: 'etapa' });
+Partida.hasMany(ResultadoNivel, { foreignKey: 'partidaId', as: 'resultados', onDelete: 'CASCADE' });
+ResultadoNivel.belongsTo(Partida, { foreignKey: 'partidaId', as: 'partida' });
+Nivel.hasMany(ResultadoNivel, { foreignKey: 'nivelId', as: 'resultados', onDelete: 'CASCADE' });
+ResultadoNivel.belongsTo(Nivel, { foreignKey: 'nivelId', as: 'nivel' });
 
 // Relación Grupo <-> Profesor (Usuario)
 Grupo.belongsTo(Usuario, {
@@ -53,6 +63,9 @@ module.exports = {
   sequelize,
   Usuario,
   Partida,
+  Etapa,
+  Nivel,
+  ResultadoNivel,
   Grupo,
   GrupoEstudiante
 };

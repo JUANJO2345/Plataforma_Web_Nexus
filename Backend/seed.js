@@ -1,101 +1,62 @@
 const bcrypt = require('bcrypt');
-const { sequelize, Usuario, Partida, Grupo } = require('./models');
+const { sequelize, Usuario, Partida, Grupo, Etapa, Nivel, ResultadoNivel } = require('./models');
+const { inicializarPartidas } = require('./database/migrarPartidas');
+
+async function asegurarUsuario({ nombre, correo, contrasena, rol }) {
+  const [usuario] = await Usuario.findOrCreate({
+    where: { correo },
+    defaults: { nombre, correo, contrasena: await bcrypt.hash(contrasena, 10), rol }
+  });
+  return usuario;
+}
 
 async function main() {
   try {
-    // Ensure DB and models are synchronized
     await sequelize.sync();
+    await inicializarPartidas();
 
-    let profesor = await Usuario.findOne({ where: { rol: 'profesor' } });
-    const saltRounds = 10;
+    const profesor = await asegurarUsuario({ nombre: 'Profesor Garcia', correo: 'profesor@example.com', contrasena: 'prof123', rol: 'profesor' });
+    const estudiante1 = await asegurarUsuario({ nombre: 'Estudiante Ana', correo: 'estudiante1@example.com', contrasena: 'est123', rol: 'estudiante' });
+    const estudiante2 = await asegurarUsuario({ nombre: 'Estudiante Carlos', correo: 'estudiante2@example.com', contrasena: 'est123', rol: 'estudiante' });
+    await asegurarUsuario({ nombre: 'Administrador', correo: 'admin@example.com', contrasena: 'admin123', rol: 'admin' });
+    const operador = await asegurarUsuario({ nombre: 'Operador Demo', correo: 'operator@example.com', contrasena: 'user123', rol: 'user' });
 
-    if (!profesor) {
-      const profPass = await bcrypt.hash('prof123', saltRounds);
-      profesor = await Usuario.create({
-        nombre: 'Profesor Garcia',
-        correo: 'profesor@example.com',
-        contrasena: profPass,
-        rol: 'profesor'
-      });
-      console.log('Seed: creado profesor ->', profesor.correo);
+    const [grupo] = await Grupo.findOrCreate({
+      where: { codigo: 'GRP-101' },
+      defaults: { codigo: 'GRP-101', nombre: 'Programación Básica - Grupo 1', profesorId: profesor.id }
+    });
+    const inscritosActuales = await grupo.getEstudiantes({ attributes: ['id'] });
+    const idsEstudiantes = new Set(inscritosActuales.map((usuario) => usuario.id));
+    await grupo.addEstudiantes([estudiante1, estudiante2].filter((usuario) => !idsEstudiantes.has(usuario.id)));
+
+    const [partidaDemo] = await Partida.findOrCreate({
+      where: { claveSeed: 'partida-demo-inicial' },
+      defaults: { usuarioId: operador.id, username: operador.correo }
+    });
+
+    const etapas = await Etapa.findAll({
+      where: { activa: true },
+      include: [{ model: Nivel, as: 'niveles' }],
+      order: [['orden', 'ASC']]
+    });
+    for (const etapa of etapas) {
+      for (const nivel of etapa.niveles.sort((a, b) => a.orden - b.orden)) {
+        await ResultadoNivel.findOrCreate({
+          where: { partidaId: partidaDemo.id, nivelId: nivel.id },
+          defaults: {
+            puntaje: 60 + (etapa.orden * 10) + (nivel.orden * 5),
+            tiempoSegundos: 35 + (etapa.orden * 8) + (nivel.orden * 4)
+          }
+        });
+      }
     }
 
-    let estudiante1 = await Usuario.findOne({ where: { correo: 'estudiante1@example.com' } });
-    if (!estudiante1) {
-      const estPass = await bcrypt.hash('est123', saltRounds);
-      estudiante1 = await Usuario.create({
-        nombre: 'Estudiante Ana',
-        correo: 'estudiante1@example.com',
-        contrasena: estPass,
-        rol: 'estudiante'
-      });
-    }
-
-    let estudiante2 = await Usuario.findOne({ where: { correo: 'estudiante2@example.com' } });
-    if (!estudiante2) {
-      const estPass = await bcrypt.hash('est123', saltRounds);
-      estudiante2 = await Usuario.create({
-        nombre: 'Estudiante Carlos',
-        correo: 'estudiante2@example.com',
-        contrasena: estPass,
-        rol: 'estudiante'
-      });
-    }
-
-    const usuariosCount = await Usuario.count();
-    if (usuariosCount <= 3) {
-      const adminPass = await bcrypt.hash('admin123', saltRounds);
-      const userPass = await bcrypt.hash('user123', saltRounds);
-
-      const admin = await Usuario.findOrCreate({
-        where: { correo: 'admin@example.com' },
-        defaults: {
-          nombre: 'admin',
-          correo: 'admin@example.com',
-          contrasena: adminPass,
-          rol: 'admin'
-        }
-      });
-
-      const operator = await Usuario.findOrCreate({
-        where: { correo: 'operator@example.com' },
-        defaults: {
-          nombre: 'operator',
-          correo: 'operator@example.com',
-          contrasena: userPass,
-          rol: 'user'
-        }
-      });
-
-      // Create a couple of partidas for the operator
-      await Partida.findOrCreate({
-        where: { id: 1 },
-        defaults: {
-          usuarioId: operator[0].id,
-          username: operator[0].correo,
-          stage: { level: 1, score: 120, metrics: { abstraction: 3, decomposition: 2 } }
-        }
-      });
-    }
-
-    // Seed Grupo
-    let grupoDemo = await Grupo.findOne({ where: { codigo: 'GRP-101' } });
-    if (!grupoDemo) {
-      grupoDemo = await Grupo.create({
-        codigo: 'GRP-101',
-        nombre: 'Programación Básica - Grupo 1',
-        profesorId: profesor.id
-      });
-      await grupoDemo.setEstudiantes([estudiante1.id, estudiante2.id]);
-      console.log('Seed: creado grupo ->', grupoDemo.codigo, 'con profesor ID:', profesor.id, 'y estudiantes inscritos:', [estudiante1.id, estudiante2.id]);
-    } else {
-      console.log('Seed: grupo GRP-101 ya existente.');
-    }
-
-    process.exit(0);
-  } catch (err) {
-    console.error('Seed error:', err);
-    process.exit(1);
+    console.log(`Seed listo: usuarios ${await Usuario.count()}, etapas ${etapas.length}, niveles ${await Nivel.count()}, partida demo #${partidaDemo.id} con ${await ResultadoNivel.count({ where: { partidaId: partidaDemo.id } })} resultados.`);
+    await sequelize.close();
+  } catch (error) {
+    console.error('Seed error:', error);
+    await sequelize.close();
+    process.exitCode = 1;
   }
 }
 

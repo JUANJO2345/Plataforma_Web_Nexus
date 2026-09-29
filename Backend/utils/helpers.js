@@ -41,6 +41,7 @@ function puedeGestionarGrupo(req, grupo) {
 
 function serializarPartida(partida) {
   const data = partida.toJSON();
+  delete data.claveSeed;
   return {
     ...data,
     username: data.usuario?.correo || data.username || null

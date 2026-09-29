@@ -32,7 +32,10 @@ export default function UserManagement() {
   }, [authFetch]);
 
   useEffect(() => {
-    fetchUsuarios();
+    const loadInitialUsers = async () => {
+      await fetchUsuarios();
+    };
+    loadInitialUsers();
   }, [fetchUsuarios]);
 
   // Manejar cambios en los inputs.

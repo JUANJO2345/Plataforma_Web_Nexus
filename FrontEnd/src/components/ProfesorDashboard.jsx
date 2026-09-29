@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthStore';
+import { puntajeTotalPartida } from '../utils/partidas';
 
 const COMPETENCIAS = [
   { key: 'abstraccion', label: 'Abstracción', color: 'bg-primary', text: 'text-primary', border: 'border-primary/40' },
@@ -140,15 +141,7 @@ export default function ProfesorDashboard() {
     );
     const ultimaPartida = partidasEst.length > 0 ? partidasEst[partidasEst.length - 1] : null;
 
-    let totalScore = 0;
-    if (ultimaPartida && typeof ultimaPartida.stage === 'object') {
-      const stage = ultimaPartida.stage;
-      ['abstraccion', 'pensamiento_computacional', 'descomposicion', 'reconocimiento_patrones'].forEach((zona) => {
-        ['n1', 'n2', 'n3', 'n4'].forEach((nivel) => {
-          totalScore += stage?.[zona]?.[nivel]?.puntaje || 0;
-        });
-      });
-    }
+    const totalScore = puntajeTotalPartida(ultimaPartida);
 
     return {
       estudiante,
@@ -371,8 +364,8 @@ export default function ProfesorDashboard() {
                               <td className="py-1.5 px-2 font-bold text-orange-400">
                                 #{String(p.id).padStart(4, '0')}
                               </td>
-                              <td className="py-1.5 px-2 font-mono text-[10px] text-on-surface-variant/90 truncate max-w-md">
-                                {typeof p.stage === 'object' ? JSON.stringify(p.stage) : p.stage}
+                              <td className="py-1.5 px-2 font-mono text-[10px] text-on-surface-variant/90 max-w-md">
+                                {(p.resultados || []).map((resultado) => `${resultado.nivel?.etapa?.nombre || 'Etapa'} · ${resultado.nivel?.nombre || 'Nivel'}: ${resultado.puntaje} pts / ${resultado.tiempoSegundos}s`).join(' · ') || 'Sin resultados de nivel'}
                               </td>
                             </tr>
                           ))}

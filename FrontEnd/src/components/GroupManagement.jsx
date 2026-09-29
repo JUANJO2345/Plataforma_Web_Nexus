@@ -43,7 +43,10 @@ export default function GroupManagement() {
   }, [authFetch]);
 
   useEffect(() => {
-    fetchData();
+    const loadInitialData = async () => {
+      await fetchData();
+    };
+    loadInitialData();
   }, [fetchData]);
 
   const profesores = usuarios.filter((u) => u.rol === 'profesor');
