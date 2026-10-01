@@ -70,3 +70,24 @@ Las contraseñas solo se asignan al crear la cuenta. El seed no reemplaza contra
 - `seed.js`: datos de desarrollo idempotentes.
 
 La sincronización automática está pensada para desarrollo. Para producción, conviene convertir los cambios de esquema en migraciones versionadas y revisar las credenciales de desarrollo.
+
+## Módulo de Contenido con IA y Google Drive
+
+Permite al profesor generar y validar configuraciones de elementos para el juego en Realidad Virtual mediante Gemini Flash, y actualizar el archivo de Drive (`ejemplo.json`) de forma transparente sin que el profesor requiera cuenta de Google personal.
+
+### Variables de entorno (`Backend/.env`)
+- `GEMINI_API_KEY`: Clave de API de Google AI Studio.
+- `GEMINI_MODEL`: Modelo Flash con nivel gratuito disponible (`gemini-1.5-flash`).
+- `GOOGLE_DRIVE_FILE_ID`: ID del archivo objetivo en Google Drive (`1mxonSdL8ydZQM0aOZn-0tTJZ3q4UgFK_`).
+- `GOOGLE_CLIENT_EMAIL`: Correo de la Service Account creada en Google Cloud Console.
+- `GOOGLE_PRIVATE_KEY`: Clave privada PEM de la Service Account.
+*(O bien colocar el JSON descargado de la cuenta de servicio en `Backend/config/service-account.json`)*
+
+> **Importante:** Para que el backend pueda escribir en el archivo de Google Drive, el propietario del archivo debe compartirlo dándole permisos de **Editor** al correo de la Service Account (`GOOGLE_CLIENT_EMAIL`).
+
+### Endpoints de IA
+- `GET /api/ai/estado`: Comprueba la conexión y lee el archivo actual de Drive.
+- `GET /api/ai/historial`: Lista los registros de auditoría y versiones previas aplicadas.
+- `POST /api/ai/propuesta`: Envía el tema y la petición a Gemini Flash, devolviendo un JSON validado con formato `{"clave": 0 | 1}` (no modifica Drive).
+- `POST /api/ai/aplicar`: Valida la propuesta aprobada, realiza una copia de respaldo del archivo actual y actualiza Google Drive registrando la auditoría.
+

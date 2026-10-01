@@ -7,6 +7,7 @@ export default function MainLayout() {
 
   const getTabLabel = () => {
     const path = location.pathname;
+    if (path.startsWith('/profesor/ia')) return 'CONTENIDO_CON_IA';
     if (path.startsWith('/estudiante')) return 'ESTUDIANTE_DASHBOARD';
     if (path.startsWith('/profesor')) return 'PROFESOR_DASHBOARD';
     if (path.startsWith('/historial')) return 'MATCH_HISTORY';
@@ -43,7 +44,7 @@ export default function MainLayout() {
         {/* Barra Lateral (SideNavBar) */}
         <aside className="h-screen w-64 fixed left-0 top-0 bg-surface/80 backdrop-blur-xl border-r border-primary/30 shadow-[0_0_15px_rgba(0,220,230,0.1)] flex flex-col py-4 z-50">
           <div className="px-6 py-10">
-            <h1 className="font-display text-[32px] text-primary tracking-tighter font-bold">NET_RUNNER</h1>
+            <h1 className="font-display text-[32px] text-primary tracking-tighter font-bold">NEXUS</h1>
           </div>
 
           {/* Perfil del Usuario */}
@@ -87,17 +88,33 @@ export default function MainLayout() {
 
             {/* VISTA PROFESOR */}
             {isProfesor && (
-              <NavLink
-                to="/profesor"
-                className={navLinkClass('orange')}
-              >
-                <span className="material-symbols-outlined text-[20px]">school</span> Grupos & Estudiantes
-              </NavLink>
+              <>
+                <NavLink
+                  to="/profesor"
+                  end
+                  className={navLinkClass('orange')}
+                >
+                  <span className="material-symbols-outlined text-[20px]">school</span> Grupos & Estudiantes
+                </NavLink>
+
+                <NavLink
+                  to="/profesor/ia"
+                  className={navLinkClass('orange')}
+                >
+                  <span className="material-symbols-outlined text-[20px]">smart_toy</span> Contenido con IA
+                </NavLink>
+              </>
             )}
 
             {/* VISTA ADMINISTRADOR */}
             {isAdmin && (
               <>
+                <NavLink
+                  to="/profesor/ia"
+                  className={navLinkClass('secondary')}
+                >
+                  <span className="material-symbols-outlined text-[20px]">smart_toy</span> Contenido con IA
+                </NavLink>
                 <NavLink
                   to="/dashboard"
                   className={navLinkClass('primary')}
@@ -146,7 +163,7 @@ export default function MainLayout() {
           {/* Barra Superior */}
           <header className="sticky top-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-primary/30 shadow-[0_0_20px_rgba(0,220,230,0.2)] flex justify-between items-center w-full px-6 h-16">
             <div className="flex items-center gap-8">
-              <span className="font-display text-[24px] text-primary italic font-bold">NET_RUNNER_OS</span>
+              <span className="font-display text-[24px] text-primary italic font-bold">NEXUS_MS</span>
             </div>
             <div className="flex items-center gap-4">
               <button

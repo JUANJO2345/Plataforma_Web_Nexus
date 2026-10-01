@@ -6,10 +6,24 @@ const Nivel = require('./Nivel');
 const ResultadoNivel = require('./ResultadoNivel');
 const Grupo = require('./Grupo');
 const GrupoEstudiante = require('./GrupoEstudiante');
+const AiAuditLog = require('./AiAuditLog');
 
 // ==========================================
 // RELACIONES ENTRE MODELOS
 // ==========================================
+
+// Relación Usuario <-> AiAuditLog
+Usuario.hasMany(AiAuditLog, {
+  foreignKey: 'usuarioId',
+  as: 'aiAuditLogs',
+  onDelete: 'CASCADE',
+  onUpdate: 'CASCADE'
+});
+
+AiAuditLog.belongsTo(Usuario, {
+  foreignKey: 'usuarioId',
+  as: 'usuario'
+});
 
 // Relación Usuario <-> Partida
 Usuario.hasMany(Partida, {
@@ -67,5 +81,6 @@ module.exports = {
   Nivel,
   ResultadoNivel,
   Grupo,
-  GrupoEstudiante
+  GrupoEstudiante,
+  AiAuditLog
 };

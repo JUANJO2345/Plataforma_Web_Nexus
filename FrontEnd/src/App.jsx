@@ -4,6 +4,7 @@ import DashboardHome from './components/DashboardHome';
 import UserManagement from './components/UserManagement';
 import GroupManagement from './components/GroupManagement';
 import ProfesorDashboard from './components/ProfesorDashboard';
+import ContenidoIaPanel from './components/ContenidoIaPanel';
 import EstudianteDashboard from './components/EstudianteDashboard';
 import AuthScreen from './components/AuthScreen';
 import MainLayout from './components/MainLayout';
@@ -105,6 +106,14 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['profesor', 'admin']}>
                   <ProfesorDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profesor/ia"
+              element={
+                <ProtectedRoute allowedRoles={['profesor', 'admin']}>
+                  <ContenidoIaPanel />
                 </ProtectedRoute>
               }
             />

@@ -52,11 +52,17 @@ function TablaEtapa({ etapa, partidas, highlightUsername, color }) {
   );
 }
 
-export default function LeaderboardTables({ partidas, highlightUsername }) {
+export default function LeaderboardTables({ partidas, highlightUsername, grupoId = null, mostrarFiltro = true }) {
   const { authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [etapas, setEtapas] = useState([]);
-  const [grupoIdSeleccionado, setGrupoIdSeleccionado] = useState('global');
+  const [grupoIdSeleccionado, setGrupoIdSeleccionado] = useState(grupoId || 'global');
+
+  useEffect(() => {
+    if (grupoId !== null && grupoId !== undefined) {
+      setGrupoIdSeleccionado(grupoId);
+    }
+  }, [grupoId]);
 
   useEffect(() => {
     Promise.all([authFetch('/api/grupos'), authFetch('/api/partidas/catalogo')])
@@ -80,15 +86,17 @@ export default function LeaderboardTables({ partidas, highlightUsername }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-low/60 border border-primary/30 p-4 font-mono-label">
-        <span className="text-primary font-bold text-[12px] uppercase">Filtro de clasificación</span>
-        <label className="flex items-center gap-3 text-[11px] text-on-surface-variant uppercase">Grupo
-          <select value={grupoIdSeleccionado} onChange={(event) => setGrupoIdSeleccionado(event.target.value)} className="bg-surface-container border border-primary/30 px-3 py-1.5 text-primary">
-            <option value="global">Clasificación global</option>
-            {grupos.map((grupo) => <option key={grupo.id} value={grupo.id}>{grupo.codigo} · {grupo.nombre || 'Sin nombre'}</option>)}
-          </select>
-        </label>
-      </div>
+      {mostrarFiltro && (
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-low/60 border border-primary/30 p-4 font-mono-label">
+          <span className="text-primary font-bold text-[12px] uppercase">Filtro de clasificación</span>
+          <label className="flex items-center gap-3 text-[11px] text-on-surface-variant uppercase">Grupo
+            <select value={grupoIdSeleccionado} onChange={(event) => setGrupoIdSeleccionado(event.target.value)} className="bg-surface-container border border-primary/30 px-3 py-1.5 text-primary">
+              <option value="global">Clasificación global</option>
+              {grupos.map((grupo) => <option key={grupo.id} value={grupo.id}>{grupo.codigo} · {grupo.nombre || 'Sin nombre'}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-6">
         {etapas.map((etapa, index) => <TablaEtapa key={etapa.id} etapa={etapa} partidas={partidasFiltradas} highlightUsername={highlightUsername} color={COLORES_ETAPA[index % COLORES_ETAPA.length]} />)}
         {etapas.length === 0 && <div className="text-on-surface-variant text-sm">Cargando etapas...</div>}
