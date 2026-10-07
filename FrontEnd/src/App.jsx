@@ -3,6 +3,7 @@ import MatchHistory from './components/MatchHistory';
 import DashboardHome from './components/DashboardHome';
 import UserManagement from './components/UserManagement';
 import GroupManagement from './components/GroupManagement';
+import SystemMaintenance from './components/SystemMaintenance';
 import ProfesorDashboard from './components/ProfesorDashboard';
 import ContenidoIaPanel from './components/ContenidoIaPanel';
 import EstudianteDashboard from './components/EstudianteDashboard';
@@ -96,6 +97,14 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <GroupManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sistema"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <SystemMaintenance />
                 </ProtectedRoute>
               }
             />

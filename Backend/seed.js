@@ -29,29 +29,76 @@ async function main() {
     const idsEstudiantes = new Set(inscritosActuales.map((usuario) => usuario.id));
     await grupo.addEstudiantes([estudiante1, estudiante2].filter((usuario) => !idsEstudiantes.has(usuario.id)));
 
-    const [partidaDemo] = await Partida.findOrCreate({
-      where: { claveSeed: 'partida-demo-inicial' },
-      defaults: { usuarioId: operador.id, username: operador.correo }
-    });
+    async function sembrarPartida({ usuario, claveSeed, offsetPuntaje = 0, offsetTiempo = 0, observacion = null }) {
+      const [partida] = await Partida.findOrCreate({
+        where: { claveSeed },
+        defaults: {
+          usuarioId: usuario.id,
+          username: usuario.correo,
+          observacion
+        }
+      });
 
-    const etapas = await Etapa.findAll({
-      where: { activa: true },
-      include: [{ model: Nivel, as: 'niveles' }],
-      order: [['orden', 'ASC']]
-    });
-    for (const etapa of etapas) {
-      for (const nivel of etapa.niveles.sort((a, b) => a.orden - b.orden)) {
-        await ResultadoNivel.findOrCreate({
-          where: { partidaId: partidaDemo.id, nivelId: nivel.id },
-          defaults: {
-            puntaje: 60 + (etapa.orden * 10) + (nivel.orden * 5),
-            tiempoSegundos: 35 + (etapa.orden * 8) + (nivel.orden * 4)
-          }
-        });
+      if (observacion && !partida.observacion) {
+        partida.observacion = observacion;
+        await partida.save();
       }
+
+      const etapas = await Etapa.findAll({
+        where: { activa: true },
+        include: [{ model: Nivel, as: 'niveles' }],
+        order: [['orden', 'ASC']]
+      });
+
+      for (const etapa of etapas) {
+        for (const nivel of etapa.niveles.sort((a, b) => a.orden - b.orden)) {
+          await ResultadoNivel.findOrCreate({
+            where: { partidaId: partida.id, nivelId: nivel.id },
+            defaults: {
+              puntaje: Math.max(10, 60 + (etapa.orden * 10) + (nivel.orden * 5) + offsetPuntaje),
+              tiempoSegundos: Math.max(15, 35 + (etapa.orden * 7) + (nivel.orden * 4) + offsetTiempo)
+            }
+          });
+        }
+      }
+      return partida;
     }
 
-    console.log(`Seed listo: usuarios ${await Usuario.count()}, etapas ${etapas.length}, niveles ${await Nivel.count()}, partida demo #${partidaDemo.id} con ${await ResultadoNivel.count({ where: { partidaId: partidaDemo.id } })} resultados.`);
+    // Sembrar partida para el Operador Demo
+    const partidaDemo = await sembrarPartida({
+      usuario: operador,
+      claveSeed: 'partida-demo-inicial',
+      offsetPuntaje: 0,
+      offsetTiempo: 0
+    });
+
+    // Sembrar partidas de prueba para Estudiante Ana
+    await sembrarPartida({
+      usuario: estudiante1,
+      claveSeed: 'partida-ana-1',
+      offsetPuntaje: 18,
+      offsetTiempo: -6,
+      observacion: 'Excelente razonamiento lógico en descomposición y patrones.'
+    });
+
+    await sembrarPartida({
+      usuario: estudiante1,
+      claveSeed: 'partida-ana-2',
+      offsetPuntaje: 28,
+      offsetTiempo: -10,
+      observacion: 'Gran consistencia de respuesta y precisión en tiempos récord.'
+    });
+
+    // Sembrar partida de prueba para Estudiante Carlos
+    await sembrarPartida({
+      usuario: estudiante2,
+      claveSeed: 'partida-carlos-1',
+      offsetPuntaje: -5,
+      offsetTiempo: 8,
+      observacion: 'Buen avance general. Se recomienda reforzar abstracción en niveles avanzados.'
+    });
+
+    console.log(`Seed listo: usuarios ${await Usuario.count()}, partidas ${await Partida.count()}, resultados ${await ResultadoNivel.count()}.`);
     await sequelize.close();
   } catch (error) {
     console.error('Seed error:', error);

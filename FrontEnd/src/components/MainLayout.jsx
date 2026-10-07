@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthStore';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function MainLayout() {
   const { user, logout, isAdmin, isProfesor, isEstudiante } = useAuth();
@@ -13,6 +14,7 @@ export default function MainLayout() {
     if (path.startsWith('/historial')) return 'MATCH_HISTORY';
     if (path.startsWith('/usuarios')) return 'GESTION_DE_USUARIOS';
     if (path.startsWith('/grupos')) return 'GESTION_DE_GRUPOS';
+    if (path.startsWith('/sistema')) return 'MANTENIMIENTO_DEL_SISTEMA';
     if (path.startsWith('/dashboard')) return 'OVERVIEW_DASHBOARD';
     return 'DASHBOARD';
   };
@@ -142,6 +144,13 @@ export default function MainLayout() {
                 >
                   <span className="material-symbols-outlined text-[20px]">group_add</span> Gestión de Grupos
                 </NavLink>
+
+                <NavLink
+                  to="/sistema"
+                  className={navLinkClass('orange')}
+                >
+                  <span className="material-symbols-outlined text-[20px]">settings_backup_restore</span> Mantenimiento del Sistema
+                </NavLink>
               </>
             )}
           </nav>
@@ -187,7 +196,9 @@ export default function MainLayout() {
             </div>
 
             {/* Contenido dinámico de la ruta activa */}
-            <Outlet />
+            <ErrorBoundary key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </section>
         </main>
       </div>

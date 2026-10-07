@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthStore';
-import { agruparResultadosPorEtapa } from '../utils/partidas';
+import { agruparResultadosPorEtapa, formatearFechaCorta } from '../utils/partidas';
 
 const COLORES_ETAPA = ['text-primary', 'text-secondary', 'text-orange-400', 'text-pink-400'];
 
@@ -133,7 +133,9 @@ export default function MatchHistory() {
                 <header className="flex flex-wrap justify-between gap-3">
                   <div>
                     <div className="font-bold text-on-surface">Partida #{String(partida.id).padStart(4, '0')}</div>
-                    <div className="text-[11px] text-on-surface-variant">{partida.username || 'Usuario sin asignar'} · {partida.fecha ? new Date(partida.fecha).toLocaleString() : 'Fecha no disponible'}</div>
+                    <div className="text-[11px] text-on-surface-variant font-mono">
+                      {partida.username || 'Usuario sin asignar'} · Fecha: {formatearFechaCorta(partida.fecha || partida.createdAt)}
+                    </div>
                   </div>
                   <div className="space-x-2">
                     <button onClick={() => handleEditClick(partida)} className="px-2 py-1 border border-primary/40 text-primary text-[10px]">Editar</button>

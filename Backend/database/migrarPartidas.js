@@ -50,6 +50,12 @@ async function inicializarPartidas() {
       allowNull: true
     });
   }
+  if (!columnas.observacion) {
+    await sequelize.getQueryInterface().addColumn('Partidas', 'observacion', {
+      type: DataTypes.TEXT,
+      allowNull: true
+    });
+  }
   const indices = await sequelize.getQueryInterface().showIndex('Partidas');
   if (!indices.some((indice) => indice.name === 'partidas_clave_seed_unique')) {
     await sequelize.getQueryInterface().addIndex('Partidas', ['claveSeed'], {

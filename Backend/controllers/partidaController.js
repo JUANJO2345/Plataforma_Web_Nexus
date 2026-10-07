@@ -188,11 +188,40 @@ async function obtenerCatalogo(req, res) {
   }
 }
 
+async function guardarObservacion(req, res) {
+  try {
+    const { id } = req.params;
+    const { observacion } = req.body;
+
+    const partida = await Partida.findByPk(id);
+    if (!partida) {
+      return res.status(404).json({ error: 'Registro de partida no encontrado' });
+    }
+
+    if (req.usuario.rol !== 'profesor' && req.usuario.rol !== 'admin') {
+      return res.status(403).json({ error: 'Solo un profesor o administrador puede registrar observaciones en este registro.' });
+    }
+
+    await partida.update({
+      observacion: typeof observacion === 'string' ? observacion.trim() : null
+    });
+
+    const partidaActualizada = await buscarPartidaCompleta(id);
+    res.json({
+      message: 'Observación registrada correctamente para este registro.',
+      partida: serializarPartida(partidaActualizada)
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al registrar la observación', detalle: error.message });
+  }
+}
+
 module.exports = {
   obtenerTodas,
   obtenerPorId,
   crear,
   actualizar,
+  guardarObservacion,
   eliminar,
   obtenerCatalogo
 };

@@ -38,3 +38,14 @@ export function agruparResultadosPorEtapa(partida) {
 export function puntajeTotalPartida(partida) {
   return obtenerResultados(partida).reduce((total, resultado) => total + resultado.puntaje, 0);
 }
+
+export function formatearFechaCorta(fechaValor) {
+  if (!fechaValor) return '—';
+  const fecha = new Date(fechaValor);
+  if (isNaN(fecha.getTime())) return '—';
+  const dia = String(fecha.getDate()).padStart(2, '0');
+  const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+  const anio = String(fecha.getFullYear()).slice(-2);
+  return `${dia}/${mes}/${anio}`;
+}
+

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthStore';
-import { puntajeTotalPartida, agruparResultadosPorEtapa } from '../utils/partidas';
+import { puntajeTotalPartida, agruparResultadosPorEtapa, formatearFechaCorta } from '../utils/partidas';
 
 const COLORES_ETAPA = [
   { color: 'text-primary', border: 'border-primary/30', bg: 'bg-primary/10' },
@@ -22,6 +22,9 @@ export default function ProfesorDashboard() {
   const [busqueda, setBusqueda] = useState('');
   const [estudianteInspeccionadoId, setEstudianteInspeccionadoId] = useState(null);
   const [partidaSeleccionadaId, setPartidaSeleccionadaId] = useState(null);
+  const [observacionTexto, setObservacionTexto] = useState('');
+  const [guardandoObservacion, setGuardandoObservacion] = useState(false);
+  const [mensajeObservacion, setMensajeObservacion] = useState(null);
 
   // Gestión de inscripción de estudiantes
   const [mostrarInscripcion, setMostrarInscripcion] = useState(false);
@@ -47,12 +50,16 @@ export default function ProfesorDashboard() {
         const dataPartidas = await resPartidas.json();
         const dataUsuarios = await resUsuarios.json();
 
-        setGrupos(dataGrupos);
-        setPartidas(dataPartidas);
-        setEstudiantesDisponibles(dataUsuarios.filter((u) => u.rol === 'estudiante' || u.rol === 'user'));
+        const listaGrupos = Array.isArray(dataGrupos) ? dataGrupos : [];
+        const listaPartidas = Array.isArray(dataPartidas) ? dataPartidas : [];
+        const listaUsuarios = Array.isArray(dataUsuarios) ? dataUsuarios : [];
 
-        if (dataGrupos.length > 0) {
-          setGrupoSeleccionado(dataGrupos[0]);
+        setGrupos(listaGrupos);
+        setPartidas(listaPartidas);
+        setEstudiantesDisponibles(listaUsuarios.filter((u) => u.rol === 'estudiante' || u.rol === 'user'));
+
+        if (listaGrupos.length > 0) {
+          setGrupoSeleccionado(listaGrupos[0]);
         }
         setError(null);
       } catch (err) {
@@ -64,6 +71,9 @@ export default function ProfesorDashboard() {
 
     if (user?.id) {
       fetchData();
+    } else if (user) {
+      setLoading(false);
+      setError('Identificador de usuario ausente en la sesión actual. Por favor inicia sesión nuevamente.');
     }
   }, [user, authFetch]);
 
@@ -99,38 +109,6 @@ export default function ProfesorDashboard() {
       setAgregandoId(null);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="font-mono-label text-primary animate-pulse text-[12px] py-12 text-center">
-        &gt;&gt; CONNECTING_PROFESSOR_NEURAL_LINK...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 border border-error/40 bg-error-container/10 font-mono-label text-[12px] text-on-error flex items-center gap-2">
-        <span className="material-symbols-outlined">warning</span> [!] SYSTEM_ERROR: {error}
-      </div>
-    );
-  }
-
-  if (grupos.length === 0) {
-    return (
-      <div className="border border-orange-400/30 bg-surface-container-low/40 p-10 backdrop-blur-md text-center shadow-[0_0_20px_rgba(251,146,60,0.1)]">
-        <span className="material-symbols-outlined text-orange-400 text-[56px] mb-3 block opacity-80 animate-pulse">
-          school
-        </span>
-        <h3 className="font-display text-[24px] text-primary uppercase font-bold mb-2">
-          Sin Grupos Asignados
-        </h3>
-        <p className="font-mono-label text-on-surface-variant text-[13px] max-w-md mx-auto">
-          No tienes asignaciones de grupo registradas en la red. Contacta al Administrador del sistema para dar de alta una clase.
-        </p>
-      </div>
-    );
-  }
 
   const estudiantesGrupo = grupoSeleccionado?.estudiantes || [];
 
@@ -189,6 +167,87 @@ export default function ProfesorDashboard() {
 
   const etapasPartidaInspeccionada = partidaInspeccionada ? agruparResultadosPorEtapa(partidaInspeccionada) : [];
   const totalGeneralInspeccionado = etapasPartidaInspeccionada.reduce((tot, et) => tot + et.puntajeTotal, 0);
+
+  useEffect(() => {
+    if (partidaInspeccionada) {
+      setObservacionTexto(partidaInspeccionada.observacion || '');
+      setMensajeObservacion(null);
+    }
+  }, [partidaInspeccionada?.id, partidaInspeccionada?.observacion]);
+
+  const guardarObservacionPartida = async (partidaId) => {
+    try {
+      setGuardandoObservacion(true);
+      setMensajeObservacion(null);
+      const res = await authFetch(`/api/partidas/${partidaId}/observacion`, {
+        method: 'PATCH',
+        body: JSON.stringify({ observacion: observacionTexto })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo guardar la observación.');
+
+      setPartidas((prevPartidas) =>
+        prevPartidas.map((p) =>
+          p.id === partidaId ? { ...p, observacion: data.partida?.observacion ?? observacionTexto } : p
+        )
+      );
+
+      setMensajeObservacion({
+        tipo: 'success',
+        texto: `Observación registrada con éxito para la partida #${String(partidaId).padStart(4, '0')}.`
+      });
+    } catch (err) {
+      setMensajeObservacion({
+        tipo: 'error',
+        texto: err.message
+      });
+    } finally {
+      setGuardandoObservacion(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="font-mono-label text-primary animate-pulse text-[12px] py-12 text-center">
+        &gt;&gt; CONNECTING_PROFESSOR_NEURAL_LINK...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 border border-error/40 bg-error-container/10 font-mono-label text-[12px] text-on-error flex items-center gap-2">
+        <span className="material-symbols-outlined">warning</span> [!] SYSTEM_ERROR: {error}
+      </div>
+    );
+  }
+
+  if (grupos.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-end">
+          <Link
+            to="/profesor/ia"
+            className="flex items-center gap-2 px-3.5 py-1.5 font-mono-label text-[11px] uppercase font-bold border border-primary bg-primary/10 text-primary hover:bg-primary/20 hover:shadow-[0_0_12px_rgba(0,220,230,0.4)] transition-all cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[16px]">smart_toy</span>
+            <span>Contenido con IA</span>
+          </Link>
+        </div>
+        <div className="border border-orange-400/30 bg-surface-container-low/40 p-10 backdrop-blur-md text-center shadow-[0_0_20px_rgba(251,146,60,0.1)]">
+          <span className="material-symbols-outlined text-orange-400 text-[56px] mb-3 block opacity-80 animate-pulse">
+            school
+          </span>
+          <h3 className="font-display text-[24px] text-primary uppercase font-bold mb-2">
+            Sin Grupos Asignados
+          </h3>
+          <p className="font-mono-label text-on-surface-variant text-[13px] max-w-md mx-auto">
+            No tienes asignaciones de grupo registradas en la red. Contacta al Administrador del sistema para dar de alta una clase.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -472,18 +531,30 @@ export default function ProfesorDashboard() {
                     {estudianteInspeccionado.partidas.map((p, idx) => {
                       const esSeleccionada = (partidaInspeccionada?.id === p.id);
                       const puntajeP = puntajeTotalPartida(p);
+                      const fechaP = formatearFechaCorta(p.fecha || p.createdAt);
                       return (
                         <button
                           key={p.id}
                           onClick={() => setPartidaSeleccionadaId(p.id)}
-                          className={`px-3 py-1 font-mono-label text-[11px] cursor-pointer transition-all border ${
+                          className={`px-3 py-1.5 font-mono-label text-[11px] cursor-pointer transition-all border flex items-center gap-2 ${
                             esSeleccionada
                               ? 'bg-primary text-black border-primary font-bold shadow-[0_0_10px_rgba(0,220,230,0.5)]'
                               : 'bg-surface-container-high border-primary/30 text-on-surface hover:border-primary'
                           }`}
                         >
-                          Partida #{String(p.id).padStart(4, '0')} · {puntajeP} pts
-                          {idx === estudianteInspeccionado.partidas.length - 1 && ' (Última)'}
+                          <span>Partida #{String(p.id).padStart(4, '0')}</span>
+                          <span className="opacity-75 text-[10px]">({fechaP})</span>
+                          <span className="font-bold">{puntajeP} pts</span>
+                          {idx === estudianteInspeccionado.partidas.length - 1 && (
+                            <span className={`text-[9px] px-1 py-0.2 uppercase font-mono ${esSeleccionada ? 'bg-black/20 text-black' : 'bg-primary/20 text-primary'}`}>
+                              Última
+                            </span>
+                          )}
+                          {p.observacion && (
+                            <span className="material-symbols-outlined text-[13px] text-orange-400" title="Contiene observación docente">
+                              comment
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -496,13 +567,13 @@ export default function ProfesorDashboard() {
                 <div className="border border-primary/30 bg-surface-container/50 p-4 backdrop-blur-md">
                   <div className="font-mono-label text-[10px] text-on-surface-variant uppercase">Estudiante</div>
                   <div className="font-display text-[20px] text-primary font-bold mt-1 truncate">
-                    {estudianteInspeccionado.estudiante.nombre || estudianteInspeccionado.estudiante.correo.split('@')[0]}
+                    {estudianteInspeccionado.estudiante.nombre || (estudianteInspeccionado.estudiante.correo ? estudianteInspeccionado.estudiante.correo.split('@')[0] : 'Estudiante')}
                   </div>
                 </div>
 
                 <div className="border border-secondary/30 bg-surface-container/50 p-4 backdrop-blur-md">
                   <div className="font-mono-label text-[10px] text-on-surface-variant uppercase">
-                    Puntaje Total {partidaInspeccionada?.id ? `(Partida #${String(partidaInspeccionada.id).padStart(4, '0')})` : ''}
+                    Puntaje Total {partidaInspeccionada?.id ? `(Partida #${String(partidaInspeccionada.id).padStart(4, '0')} · ${formatearFechaCorta(partidaInspeccionada.fecha || partidaInspeccionada.createdAt)})` : ''}
                   </div>
                   <div className="font-display text-[20px] text-secondary font-bold mt-1">
                     {totalGeneralInspeccionado} pts
@@ -516,6 +587,77 @@ export default function ProfesorDashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* PANEL DE OBSERVACIÓN DOCENTE EXCLUSIVA PARA ESTE REGISTRO DE PARTIDA */}
+              {partidaInspeccionada && (
+                <div className="border-2 border-orange-400/50 bg-surface-container/80 p-5 backdrop-blur-md space-y-3 shadow-[0_0_20px_rgba(251,146,60,0.15)]">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-orange-400/20 pb-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-orange-400 font-mono-label text-[12px] font-bold uppercase tracking-wider">
+                        <span className="material-symbols-outlined text-[18px]">rate_review</span>
+                        // OBSERVACION_DOCENTE_PARA_ESTE_REGISTRO :: PARTIDA #{String(partidaInspeccionada.id).padStart(4, '0')} (Fecha: {formatearFechaCorta(partidaInspeccionada.fecha || partidaInspeccionada.createdAt)})
+                      </div>
+                      <p className="text-[11px] font-mono-label text-on-surface-variant/70 mt-0.5">
+                        Deja una observación cualitativa o retroalimentación visible únicamente para este intento del estudiante.
+                      </p>
+                    </div>
+                    {partidaInspeccionada.observacion && (
+                      <span className="px-2.5 py-1 border border-orange-400/60 bg-orange-400/10 text-orange-400 text-[10px] font-mono uppercase font-bold flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                        Observación Registrada
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <textarea
+                      rows={3}
+                      value={observacionTexto}
+                      onChange={(e) => setObservacionTexto(e.target.value)}
+                      placeholder="Escribe una observación, sugerencia o feedback cualitativo específico para esta partida del estudiante..."
+                      className="w-full bg-surface-container-high border border-orange-400/40 p-3 font-mono text-[12px] text-on-surface focus:outline-none focus:border-orange-400 focus:shadow-[0_0_12px_rgba(251,146,60,0.2)] transition-all placeholder:text-on-surface-variant/40"
+                    />
+
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div>
+                        {mensajeObservacion && (
+                          <div className={`font-mono-label text-[11px] flex items-center gap-1.5 p-1 px-2 border ${
+                            mensajeObservacion.tipo === 'success'
+                              ? 'border-secondary/40 bg-secondary/10 text-secondary'
+                              : 'border-error/40 bg-error/10 text-error'
+                          }`}>
+                            <span className="material-symbols-outlined text-[15px]">
+                              {mensajeObservacion.tipo === 'success' ? 'check_circle' : 'warning'}
+                            </span>
+                            <span>{mensajeObservacion.texto}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end">
+                        {observacionTexto && (
+                          <button
+                            type="button"
+                            onClick={() => setObservacionTexto('')}
+                            className="px-3 py-1.5 font-mono-label text-[11px] uppercase border border-on-surface-variant/30 text-on-surface-variant hover:text-orange-400 transition-all cursor-pointer"
+                          >
+                            Limpiar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={guardandoObservacion}
+                          onClick={() => guardarObservacionPartida(partidaInspeccionada.id)}
+                          className="px-4 py-1.5 font-mono-label text-[11px] uppercase font-bold border border-orange-400 bg-orange-400 text-black hover:bg-orange-300 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-1.5 shadow-[0_0_12px_rgba(251,146,60,0.3)]"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">save</span>
+                          <span>{guardandoObservacion ? 'Guardando...' : 'Guardar Observación'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Desglose por Etapas y Niveles con Tarjetas Cyberpunk (Idéntico a EstudianteDashboard) */}
               <div className="space-y-3">
@@ -568,8 +710,10 @@ export default function ProfesorDashboard() {
                     <thead>
                       <tr className="border-b border-primary/20 text-primary uppercase text-[10px]">
                         <th className="py-2 px-3">Partida</th>
+                        <th className="py-2 px-3">Fecha</th>
                         <th className="py-2 px-3">Puntaje Total</th>
                         <th className="py-2 px-3">Detalle por Nivel</th>
+                        <th className="py-2 px-3">Observación Docente</th>
                         <th className="py-2 px-3 text-right">Acción</th>
                       </tr>
                     </thead>
@@ -587,24 +731,37 @@ export default function ProfesorDashboard() {
                             <td className="py-2 px-3 font-bold text-orange-400">
                               #{String(p.id).padStart(4, '0')}
                             </td>
+                            <td className="py-2 px-3 font-mono text-[11px] text-on-surface-variant whitespace-nowrap">
+                              {formatearFechaCorta(p.fecha || p.createdAt)}
+                            </td>
                             <td className="py-2 px-3 font-bold text-secondary">
                               {puntajeP} pts
                             </td>
-                            <td className="py-2 px-3 font-mono text-[10px] text-on-surface-variant max-w-md">
+                            <td className="py-2 px-3 font-mono text-[10px] text-on-surface-variant max-w-xs truncate">
                               {(p.resultados || [])
                                 .map((r) => `${r.nivel?.etapa?.nombre || 'E'} · ${r.nivel?.nombre || 'N'}: ${r.puntaje}pts (${r.tiempoSegundos}s)`)
                                 .join(' | ') || 'Sin niveles'}
                             </td>
+                            <td className="py-2 px-3 font-mono text-[10px]">
+                              {p.observacion ? (
+                                <span className="text-orange-400 flex items-center gap-1 font-bold truncate max-w-[220px]" title={p.observacion}>
+                                  <span className="material-symbols-outlined text-[14px] shrink-0">chat</span>
+                                  <span className="truncate">{p.observacion}</span>
+                                </span>
+                              ) : (
+                                <span className="text-on-surface-variant/40 italic">Sin observación</span>
+                              )}
+                            </td>
                             <td className="py-2 px-3 text-right">
                               <button
                                 onClick={() => setPartidaSeleccionadaId(p.id)}
-                                className={`px-2 py-0.5 text-[10px] font-mono uppercase font-bold border transition-all cursor-pointer ${
+                                className={`px-2.5 py-1 text-[10px] font-mono uppercase font-bold border transition-all cursor-pointer ${
                                   esSeleccionada
                                     ? 'border-primary bg-primary text-black'
                                     : 'border-primary/30 text-primary hover:bg-primary/10'
                                 }`}
                               >
-                                {esSeleccionada ? 'Viendo' : 'Ver Nivel'}
+                                {esSeleccionada ? 'Viendo Registro' : 'Ver / Dejar Nota'}
                               </button>
                             </td>
                           </tr>
@@ -642,75 +799,172 @@ export default function ProfesorDashboard() {
           <div className="space-y-4">
             {estudiantesFiltrados.map(({ estudiante, partidas: pList, totalScore, ultimaPartida }) => {
               const estaInspeccionado = estudianteInspeccionadoId === estudiante.id;
+              const puntajeMaximo = pList.length > 0 ? Math.max(...pList.map((p) => puntajeTotalPartida(p))) : 0;
+
               return (
                 <div
                   key={estudiante.id}
-                  className={`border transition-all p-4 space-y-3 ${
+                  className={`border transition-all p-5 space-y-4 ${
                     estaInspeccionado
-                      ? 'border-primary bg-primary/5 shadow-[0_0_15px_rgba(0,220,230,0.15)]'
-                      : 'border-primary/20 bg-surface-container/40 hover:border-primary/50'
+                      ? 'border-primary bg-primary/5 shadow-[0_0_20px_rgba(0,220,230,0.18)]'
+                      : 'border-primary/20 bg-surface-container/30 hover:border-primary/40'
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Encabezado del Estudiante */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-primary/10 pb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 border border-primary/40 flex items-center justify-center bg-primary/10">
-                        <span className="material-symbols-outlined text-primary text-[20px]">person</span>
+                      <div className="w-11 h-11 border border-primary/40 flex items-center justify-center bg-primary/10 shrink-0">
+                        <span className="material-symbols-outlined text-primary text-[22px]">person</span>
                       </div>
                       <div>
-                        <div className="font-bold text-on-surface text-[14px]">
-                          {estudiante.nombre || 'Estudiante'}
+                        <div className="font-bold text-on-surface text-[15px] flex items-center gap-2">
+                          <span>{estudiante.nombre || 'Estudiante'}</span>
+                          {estaInspeccionado && (
+                            <span className="text-[10px] px-2 py-0.5 bg-primary text-black font-mono font-bold uppercase">
+                              Expediente Abierto
+                            </span>
+                          )}
                         </div>
-                        <div className="font-mono-label text-[11px] text-primary">
+                        <div className="font-mono-label text-[11px] text-primary/80">
                           {estudiante.correo} · ID #{estudiante.id}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-4 font-mono-label text-[12px]">
-                      <div className="text-right">
-                        <div className="text-[10px] text-on-surface-variant uppercase">Puntaje Total</div>
-                        <div className="font-bold text-secondary text-[16px]">{totalScore} pts</div>
+                    <div className="flex flex-wrap items-center gap-3 font-mono-label text-[12px]">
+                      <div className="text-right px-3 py-1 bg-surface-container/60 border border-secondary/30">
+                        <div className="text-[9px] text-on-surface-variant uppercase">Mejor Puntaje</div>
+                        <div className="font-bold text-secondary text-[15px]">
+                          {puntajeMaximo} pts
+                        </div>
                       </div>
 
-                      <span className="px-3 py-1 bg-primary/10 border border-primary/40 text-primary text-[11px] uppercase font-bold">
-                        {pList.length} {pList.length === 1 ? 'Partida' : 'Partidas'}
-                      </span>
+                      <div className="text-right px-3 py-1 bg-surface-container/60 border border-primary/30">
+                        <div className="text-[9px] text-on-surface-variant uppercase">Total Partidas</div>
+                        <div className="font-bold text-primary text-[15px]">
+                          {pList.length}
+                        </div>
+                      </div>
 
-                      {/* Botón para ver registros como en el dashboard del estudiante */}
                       <button
                         onClick={() => {
-                          setEstudianteInspeccionadoId(estudiante.id);
-                          setPartidaSeleccionadaId(ultimaPartida?.id || null);
-                          window.scrollTo({ top: 380, behavior: 'smooth' });
+                          if (estaInspeccionado) {
+                            setEstudianteInspeccionadoId(null);
+                            setPartidaSeleccionadaId(null);
+                          } else {
+                            setEstudianteInspeccionadoId(estudiante.id);
+                            setPartidaSeleccionadaId(ultimaPartida?.id || null);
+                            window.scrollTo({ top: 380, behavior: 'smooth' });
+                          }
                         }}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 font-mono-label text-[11px] uppercase font-bold border transition-all cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-3.5 py-2 font-mono-label text-[11px] uppercase font-bold border transition-all cursor-pointer ${
                           estaInspeccionado
-                            ? 'bg-primary text-black border-primary'
-                            : 'border-orange-400 text-orange-400 hover:bg-orange-400 hover:text-black shadow-[0_0_8px_rgba(251,146,60,0.2)]'
+                            ? 'border-on-surface-variant/40 text-on-surface-variant hover:text-white'
+                            : 'border-orange-400 text-orange-400 hover:bg-orange-400 hover:text-black shadow-[0_0_10px_rgba(251,146,60,0.2)]'
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[15px]">analytics</span>
-                        <span>{estaInspeccionado ? 'Expediente Abierto' : 'Ver Registros'}</span>
+                        <span className="material-symbols-outlined text-[15px]">
+                          {estaInspeccionado ? 'close' : 'analytics'}
+                        </span>
+                        <span>{estaInspeccionado ? 'Cerrar Expediente' : 'Auditar Alumno'}</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Vista rápida de última partida */}
-                  {ultimaPartida && (
-                    <div className="border-t border-primary/10 pt-2 flex flex-col sm:flex-row justify-between text-[11px] font-mono-label text-on-surface-variant/80 gap-2">
-                      <div>
-                        Última Partida: <span className="text-orange-400 font-bold">#{String(ultimaPartida.id).padStart(4, '0')}</span>
-                        {ultimaPartida.resultados && (
-                          <span className="ml-2 opacity-70">
-                            ({ultimaPartida.resultados.length} niveles superados)
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-primary text-[10px]">
-                        Haz clic en "Ver Registros" para ver el desglose por competencias y niveles
-                      </div>
+                  {/* Listado Completo y Limpio de TODAS las Partidas del Estudiante */}
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-center text-[10px] font-mono-label text-on-surface-variant uppercase tracking-wider">
+                      <span className="flex items-center gap-1.5 font-bold text-orange-400">
+                        <span className="w-1.5 h-1.5 bg-orange-400"></span>
+                        // TODAS_LAS_PARTIDAS_REGISTRADAS ({pList.length}):
+                      </span>
+                      {pList.length > 0 && (
+                        <span className="text-on-surface-variant/60 font-normal hidden sm:inline">
+                          Selecciona una partida para auditarla y asignarle observaciones
+                        </span>
+                      )}
                     </div>
-                  )}
+
+                    {pList.length === 0 ? (
+                      <div className="p-3 border border-dashed border-primary/20 bg-surface-container-low/20 text-center font-mono-label text-[11px] text-on-surface-variant/60">
+                        Este alumno aún no registra partidas jugadas en la plataforma.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {pList.map((p, pIdx) => {
+                          const puntajeP = puntajeTotalPartida(p);
+                          const fechaP = formatearFechaCorta(p.fecha || p.createdAt);
+                          const esUltima = pIdx === pList.length - 1;
+                          const esSeleccionada = estaInspeccionado && (partidaInspeccionada?.id === p.id);
+
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => {
+                                setEstudianteInspeccionadoId(estudiante.id);
+                                setPartidaSeleccionadaId(p.id);
+                                window.scrollTo({ top: 380, behavior: 'smooth' });
+                              }}
+                              className={`p-3 border transition-all cursor-pointer flex flex-col justify-between gap-2.5 ${
+                                esSeleccionada
+                                  ? 'border-primary bg-primary/10 shadow-[0_0_12px_rgba(0,220,230,0.3)]'
+                                  : 'border-primary/15 bg-surface-container-high/40 hover:border-primary/50 hover:bg-surface-container-high/80'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-bold text-orange-400 text-[12px]">
+                                    #{String(p.id).padStart(4, '0')}
+                                  </span>
+                                  {esUltima && (
+                                    <span className="text-[9px] px-1.5 py-0.2 bg-primary/20 text-primary font-mono uppercase font-bold">
+                                      Última
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-mono text-[10px] text-on-surface-variant flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-[13px]">calendar_today</span>
+                                  {fechaP}
+                                </span>
+                              </div>
+
+                              <div className="flex items-baseline justify-between pt-0.5">
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant uppercase block font-mono">Puntaje</span>
+                                  <span className="font-display text-[16px] text-secondary font-bold">
+                                    {puntajeP} pts
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] text-on-surface-variant font-mono">
+                                    {(p.resultados || []).length} niveles
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="border-t border-primary/10 pt-2 flex items-center justify-between text-[10px] font-mono">
+                                {p.observacion ? (
+                                  <span className="text-orange-400 flex items-center gap-1 font-bold truncate max-w-[170px]" title={p.observacion}>
+                                    <span className="material-symbols-outlined text-[13px] shrink-0">chat</span>
+                                    <span className="truncate">{p.observacion}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-on-surface-variant/40 italic">Sin observación</span>
+                                )}
+
+                                <span className={`text-[10px] uppercase font-bold flex items-center gap-0.5 ${
+                                  esSeleccionada ? 'text-primary' : 'text-on-surface-variant hover:text-primary'
+                                }`}>
+                                  <span>{esSeleccionada ? 'Inspeccionando' : 'Auditar'}</span>
+                                  <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

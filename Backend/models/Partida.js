@@ -16,7 +16,8 @@ const Partida = sequelize.define('Partida', {
     allowNull: true // Campo heredado para conservar compatibilidad con registros antiguos.
   },
   fecha: { type: DataTypes.DATE, allowNull: true, defaultValue: DataTypes.NOW },
-  claveSeed: { type: DataTypes.STRING, allowNull: true }
+  claveSeed: { type: DataTypes.STRING, allowNull: true },
+  observacion: { type: DataTypes.TEXT, allowNull: true }
 });
 
 module.exports = Partida;
