@@ -18,11 +18,13 @@ npm run lint
 npm run build
 ```
 
-## Integración con partidas
-
+## Integración con partidas y telemetría
+ 
 - `GET /api/partidas/catalogo` proporciona las etapas y sus niveles ordenados.
 - `GET /api/partidas` devuelve partidas con resultados relacionales. Cada resultado incluye puntaje, tiempo, nivel y etapa.
 - El formulario envía `nivelId`, `puntaje` y `tiempoSegundos`; el backend guarda cada nivel como un resultado asociado a la partida.
-- `src/utils/partidas.js` agrupa resultados por etapa y calcula los puntajes que se muestran en los paneles.
+- `src/utils/partidas.js` agrupa resultados por etapa, computa puntajes totales y formatea fechas en formato `dd/mm/aa` (`formatearFechaCorta()`).
+- Contención de excepciones visuales y de renderizado mediante `ErrorBoundary.jsx` con interfaz cyberpunk.
+- Vistas principales: Administrador (`DashboardHome`, `SystemMaintenance`, `UserManagement`, `GroupManagement`, `MatchHistory`), Profesor (`ProfesorDashboard`, `ContenidoIaPanel`) y Estudiante (`EstudianteDashboard`).
 
 La URL de la API y la sesión se administran desde el contexto de autenticación. Para el modelo completo y las rutas, consulta [la documentación del backend](../Backend/README.md).

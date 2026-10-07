@@ -30,7 +30,10 @@ Todas las rutas requieren una sesión JWT, excepto las reglas de autorización e
 | `GET /api/partidas/:id` | Consulta una partida con sus resultados. |
 | `POST /api/partidas` | Crea una partida y sus resultados en una transacción. |
 | `PUT /api/partidas/:id` | Reemplaza los resultados enviados y permite reasignar el usuario a un administrador. |
+| `PATCH /api/partidas/:id/observacion` | Actualiza la observación docente de la partida (profesores y administradores). |
 | `DELETE /api/partidas/:id` | Elimina una partida; solo administradores. |
+| `GET /api/sistema/estado` | Diagnóstico del sistema, conteo de nodos y métricas de almacenamiento (solo admin). |
+| `POST /api/sistema/reset` | Purga partidas y logs de auditoría con código de confirmación (solo admin). |
 
 Para crear o actualizar resultados, cada elemento requiere `nivelId`, `puntaje` y `tiempoSegundos`. En la creación, administradores pueden indicar `usuarioId`, `username` o `correo`; los demás usuarios quedan asociados a su cuenta autenticada. Al actualizar, un usuario solo puede modificar su propia partida; un administrador puede modificar cualquiera.
 
