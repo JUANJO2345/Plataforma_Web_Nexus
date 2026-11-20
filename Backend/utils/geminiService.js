@@ -14,6 +14,12 @@ const CATEGORIAS_VALIDAS = [
   'Capacidad del sistema'
 ];
 
+const MIN_BOTONES = 40;
+const MAX_BOTONES = 60;
+const MIN_CATEGORIAS = 3;
+const MAX_CATEGORIAS = 5;
+const MAX_LONGITUD_CATEGORIA = 80;
+
 /**
  * JSON original exacto utilizado por la plataforma VR (43 botones).
  */
@@ -80,27 +86,31 @@ function formatearJsonBotones(data) {
 }
 
 /**
- * Normaliza una categoría comparando sin distinguir mayúsculas o tildes contra CATEGORIAS_VALIDAS.
- * Devuelve la categoría canónica o null si no corresponde a ninguna válida.
+ * Genera una clave normalizada (sin tildes, minúsculas y espacios colapsados)
+ * para agrupar y comparar categorías dinámicas.
  */
-function normalizarCategoria(rawCategoria) {
-  if (typeof rawCategoria !== 'string') return null;
-  const limpiar = (s) =>
-    s
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
-
-  const buscada = limpiar(rawCategoria);
-  if (!buscada) return null;
-
-  return CATEGORIAS_VALIDAS.find((cat) => limpiar(cat) === buscada) || null;
+function claveCategoria(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
- * Valida estrictamente que la estructura cumpla con {"botones": [...]} de 43 elementos,
- * con texto no vacío, ponderacion (0 o 1/1.0) y categoria opcional dentro de las 4 válidas.
+ * Limpia espacios repetidos en una categoría y devuelve null si queda vacía o no es texto.
+ */
+function sanitizarNombreCategoria(raw) {
+  if (typeof raw !== 'string') return null;
+  const limpia = raw.replace(/\s+/g, ' ').trim();
+  return limpia.length > 0 ? limpia : null;
+}
+
+/**
+ * Valida estrictamente que la estructura cumpla con {"botones": [...]} de 40 a 60 elementos,
+ * con texto no vacío, ponderacion (0 o 1/1.0) y categoria opcional agrupada en 3 a 5 categorías distintas.
  */
 function validarFormatoPropuesta(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -111,10 +121,13 @@ function validarFormatoPropuesta(data) {
     throw new Error('El JSON debe contener la propiedad "botones" como un arreglo.');
   }
 
-  const totalEsperado = ORIGINAL_JSON.botones.length;
-  if (data.botones.length !== totalEsperado) {
-    throw new Error(`El arreglo "botones" debe contener exactamente ${totalEsperado} elementos. Recibidos: ${data.botones.length}.`);
+  if (data.botones.length < MIN_BOTONES || data.botones.length > MAX_BOTONES) {
+    throw new Error(
+      `El arreglo "botones" debe contener entre ${MIN_BOTONES} y ${MAX_BOTONES} elementos. Recibidos: ${data.botones.length}.`
+    );
   }
+
+  const categoriasCanonicas = new Map();
 
   const botonesValidados = data.botones.map((item, idx) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -136,21 +149,40 @@ function validarFormatoPropuesta(data) {
     };
 
     if (item.categoria !== undefined && item.categoria !== null && item.categoria !== '') {
-      if (!CATEGORIAS_VALIDAS.includes(item.categoria)) {
+      if (typeof item.categoria !== 'string') {
+        throw new Error(`Categoría inválida en la posición ${idx}: debe ser una cadena de texto.`);
+      }
+      const catLimpia = sanitizarNombreCategoria(item.categoria);
+      if (!catLimpia || catLimpia.length > MAX_LONGITUD_CATEGORIA) {
+        throw new Error(
+          `Categoría inválida en la posición ${idx}: debe tener entre 1 y ${MAX_LONGITUD_CATEGORIA} caracteres.`
+        );
+      }
+      const clave = claveCategoria(catLimpia);
+      if (!clave) {
         throw new Error(`Categoría inválida en la posición ${idx}: "${item.categoria}".`);
       }
-      botonSanitizado.categoria = item.categoria;
+      if (!categoriasCanonicas.has(clave)) {
+        categoriasCanonicas.set(clave, catLimpia);
+      }
+      botonSanitizado.categoria = categoriasCanonicas.get(clave);
     }
 
     return botonSanitizado;
   });
+
+  if (categoriasCanonicas.size < MIN_CATEGORIAS || categoriasCanonicas.size > MAX_CATEGORIAS) {
+    throw new Error(
+      `La propuesta debe contener entre ${MIN_CATEGORIAS} y ${MAX_CATEGORIAS} categorías distintas. Recibidas: ${categoriasCanonicas.size}.`
+    );
+  }
 
   return { botones: botonesValidados };
 }
 
 /**
  * Normaliza y reconstruye la respuesta dinámica de Gemini respetando los textos,
- * cifras, ponderaciones y categorías generadas, garantizando exactamente 43 botones válidos.
+ * cifras, ponderaciones y entre 3 y 5 categorías temáticas generadas para 40 a 60 botones.
  */
 function reconstruirPropuestaDesdePlantilla(parsed) {
   const rawBotones = Array.isArray(parsed) ? parsed : parsed?.botones;
@@ -159,25 +191,21 @@ function reconstruirPropuestaDesdePlantilla(parsed) {
     throw new Error('Gemini no devolvió el arreglo "botones" esperado.');
   }
 
-  const totalEsperado = ORIGINAL_JSON.botones.length;
-  const botonesReconstruidos = [];
+  const botonesNormalizados = [];
 
-  for (let idx = 0; idx < totalEsperado; idx += 1) {
-    const slotOriginal = ORIGINAL_JSON.botones[idx];
-    const candidato = idx < rawBotones.length ? rawBotones[idx] : null;
-
+  for (const candidato of rawBotones) {
     let textoFinal = '';
     if (typeof candidato === 'string') {
-      textoFinal = candidato;
-    } else if (candidato && typeof candidato === 'object' && typeof candidato.texto === 'string') {
-      textoFinal = candidato.texto;
+      textoFinal = candidato.trim();
+    } else if (candidato && typeof candidato === 'object' && !Array.isArray(candidato) && typeof candidato.texto === 'string') {
+      textoFinal = candidato.texto.trim();
     }
 
-    if (textoFinal.trim().length === 0) {
-      textoFinal = slotOriginal.texto;
+    if (!textoFinal) {
+      continue;
     }
 
-    let ponderacionFinal = slotOriginal.ponderacion;
+    let ponderacionFinal = 0;
     if (candidato && typeof candidato === 'object' && candidato.ponderacion !== undefined) {
       const pond = candidato.ponderacion;
       if (pond === 1 || pond === '1' || pond === '1.0' || pond === true) {
@@ -195,23 +223,69 @@ function reconstruirPropuestaDesdePlantilla(parsed) {
     };
 
     if (candidato && typeof candidato === 'object') {
-      const categoriaNormalizada = normalizarCategoria(candidato.categoria);
-      if (categoriaNormalizada) {
-        boton.categoria = categoriaNormalizada;
+      const catLimpia = sanitizarNombreCategoria(candidato.categoria);
+      if (catLimpia && catLimpia.length <= MAX_LONGITUD_CATEGORIA && claveCategoria(catLimpia)) {
+        boton.categoria = catLimpia;
       }
-    } else if (!candidato && slotOriginal.categoria) {
-      boton.categoria = slotOriginal.categoria;
     }
 
-    botonesReconstruidos.push(boton);
+    botonesNormalizados.push(boton);
   }
+
+  const botonesRecortados = botonesNormalizados.slice(0, MAX_BOTONES);
+
+  const frecuencias = new Map();
+  let orden = 0;
+  for (const boton of botonesRecortados) {
+    if (!boton.categoria) continue;
+    const clave = claveCategoria(boton.categoria);
+    const existente = frecuencias.get(clave);
+    if (existente) {
+      existente.count += 1;
+    } else {
+      frecuencias.set(clave, {
+        nombre: boton.categoria,
+        count: 1,
+        orden
+      });
+      orden += 1;
+    }
+  }
+
+  const clavesPermitidas = new Map();
+  if (frecuencias.size > MAX_CATEGORIAS) {
+    const topCategorias = Array.from(frecuencias.entries())
+      .sort((a, b) => (b[1].count - a[1].count) || (a[1].orden - b[1].orden))
+      .slice(0, MAX_CATEGORIAS);
+    for (const [clave, info] of topCategorias) {
+      clavesPermitidas.set(clave, info.nombre);
+    }
+  } else {
+    for (const [clave, info] of frecuencias.entries()) {
+      clavesPermitidas.set(clave, info.nombre);
+    }
+  }
+
+  const botonesReconstruidos = botonesRecortados.map((boton) => {
+    const resultado = {
+      texto: boton.texto,
+      ponderacion: boton.ponderacion
+    };
+    if (boton.categoria) {
+      const clave = claveCategoria(boton.categoria);
+      if (clavesPermitidas.has(clave)) {
+        resultado.categoria = clavesPermitidas.get(clave);
+      }
+    }
+    return resultado;
+  });
 
   return validarFormatoPropuesta({ botones: botonesReconstruidos });
 }
 
 /**
- * Genera una propuesta completamente dinámica (cifras, métricas, ponderaciones y categorías)
- * adaptada al tema indicado por el usuario, manteniendo la estructura de 43 botones.
+ * Genera una propuesta completamente dinámica (cifras, métricas, ponderaciones y 3-5 categorías)
+ * adaptada al tema indicado por el usuario, con entre 40 y 60 botones y ~40% incorrectos (ponderación 0).
  */
 async function generarPropuestaGemini({ tema, peticion, elementosSugeridos }) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -232,7 +306,7 @@ async function generarPropuestaGemini({ tema, peticion, elementosSugeridos }) {
 
   const prompt = `
 Eres un diseñador experto de escenarios de simulación sistémica y tableros de datos para una plataforma educativa en Realidad Virtual (VR).
-Tu tarea es crear desde cero un conjunto COMPLETAMENTE NUEVO y DINÁMICO de exactamente ${ORIGINAL_JSON.botones.length} tarjetas/botones de información sobre el tema solicitado, manteniendo estrictamente el esquema JSON requerido.
+Tu tarea es crear desde cero un conjunto COMPLETAMENTE NUEVO y DINÁMICO de entre ${MIN_BOTONES} y ${MAX_BOTONES} tarjetas/botones de información y entre ${MIN_CATEGORIAS} y ${MAX_CATEGORIAS} categorías temáticas sobre el tema solicitado, manteniendo estrictamente el esquema JSON requerido.
 
 Tema solicitado: "${tema || 'Sistema Urbano Inteligente'}"
 ${peticion ? `Instrucciones adicionales del usuario: "${peticion}"` : ''}
@@ -243,38 +317,39 @@ Debes responder ÚNICAMENTE con un objeto JSON válido con la forma:
 {
   "botones": [
     { "texto": "...", "ponderacion": 1.0 },
-    { "texto": "...", "ponderacion": 0, "categoria": "Flujo entre Zonas" }
+    { "texto": "...", "ponderacion": 0, "categoria": "Nombre de Categoria Tematica" }
   ]
 }
 
 REGLAS ESTRICTAS PARA QUE TODO SEA DINÁMICO Y NO DAÑE EL JSON:
-1. Cantidad exacta: el arreglo "botones" DEBE contener EXACTAMENTE ${ORIGINAL_JSON.botones.length} objetos.
+1. Cantidad de botones:
+   - El arreglo "botones" DEBE contener entre ${MIN_BOTONES} y ${MAX_BOTONES} objetos (mínimo ${MIN_BOTONES}, máximo ${MAX_BOTONES}; elige una cantidad natural dentro del rango, por ejemplo entre 45 y 55 según la riqueza del tema).
 2. Cifras, métricas y unidades 100% nuevas y realistas para "${tema || 'Sistema Urbano Inteligente'}":
    - INVENTA todas las cifras, cantidades, porcentajes, horarios, capacidades, tiempos, flujos y unidades de medida propias del dominio del tema (por ejemplo: MW, camas, pacientes/h, TEUs, m³/s, transacciones/s, ms, hectáreas, etc., según el tema).
    - PROHIBIDO copiar cifras, métricas o listas fijas de otros dominios (no repitas 5M, 18M, 12M, 25 millones, 42 minutos, 48km, 140%, etc.). Varía los órdenes de magnitud y haz cada escenario auténtico y distinto.
 3. Variedad de formatos en "texto":
-   - Combina ~30 tarjetas breves de una sola línea y ~13 tarjetas detalladas multilínea con título y viñetas usando saltos de línea y asteriscos (por ejemplo: "Subsistema Alpha:\\n* Capacidad instalada: ...\\n* Tasa de carga: ...\\n* Latencia media: ..."), diseñando atributos propios del tema elegido.
-4. CONTRASTE ESTRICTO ENTRE BOTONES IMPORTANTES ("ponderacion": 1.0) Y NO SELECCIONADOS ("ponderacion": 0):
+   - Combina aproximadamente 65%–70% de tarjetas breves de una sola línea y 30%–35% de tarjetas detalladas multilínea con título y viñetas usando saltos de línea y asteriscos (por ejemplo: "Subsistema Alpha:\\n* Capacidad instalada: ...\\n* Tasa de carga: ...\\n* Latencia media: ..."), diseñando atributos propios del tema elegido.
+4. PROPORCIÓN 40% INCORRECTOS ("ponderacion": 0) / 60% CORRECTOS ("ponderacion": 1.0) Y CONTRASTE ESTRICTO:
    - Cada objeto DEBE tener "ponderacion" igual a 1.0 o 0 (nunca booleanos ni otros números).
-   - Asigna "ponderacion": 1.0 a entre 8 y 12 botones repartidos en distintas posiciones del arreglo, y "ponderacion": 0 a los demás (31 a 35 botones).
-   - REGLA PARA "ponderacion": 1.0 (ÚNICOS BOTONES CRÍTICOS / IMPORTANTES):
-     * SOLO los botones con "ponderacion": 1.0 pueden describir problemas reales, alertas críticas, saturaciones graves (>90%–140%), desabastecimientos, cuellos de botella severos, demoras alarmantes, fallas operativas o indicadores prioritarios para la toma de decisiones del tema/petición.
-   - REGLA PARA "ponderacion": 0 (NO SELECCIONADOS — FÁCILES DE DISTINGUIR Y DESCARTAR):
-     * Cualquier persona debe notar de inmediato que estos botones NO son críticos ni urgentes frente a los de 1.0.
+   - Alrededor del 40% del total de botones DEBEN ser incorrectos/distractores con "ponderacion": 0, y el 60% restante DEBEN ser correctos/relevantes con "ponderacion": 1.0, mezclados en distintas posiciones del arreglo (no agrupados todos al inicio o al final).
+   - Referencias de conteo según el total elegido:
+     * Si generas 40 botones: ~16 con "ponderacion": 0 (40%) y ~24 con "ponderacion": 1.0 (60%).
+     * Si generas 50 botones: ~20 con "ponderacion": 0 (40%) y ~30 con "ponderacion": 1.0 (60%).
+     * Si generas 60 botones: ~24 con "ponderacion": 0 (40%) y ~36 con "ponderacion": 1.0 (60%).
+   - REGLA PARA "ponderacion": 1.0 (~60% — BOTONES CORRECTOS / RELEVANTES):
+     * Deben contener datos clave, métricas operativas relevantes, alertas críticas, saturaciones, cuellos de botella, indicadores de capacidad, flujos principales, ventanas críticas y variables determinantes útiles para analizar y tomar decisiones sobre el tema/petición.
+   - REGLA PARA "ponderacion": 0 (~40% — BOTONES INCORRECTOS / DISTRACTORES FÁCILES DE DESCARTAR):
+     * Cualquier estudiante debe poder identificarlos y descartarlos frente a los de 1.0.
      * Redacta los botones con "ponderacion": 0 ÚNICAMENTE como:
-       a) Operación normal, estable y holgada (ocupación baja o moderada de 15%–60%, tiempos de espera cortos de 1–5 min, inventarios completos con semanas de autonomía, equipos 100% operativos).
-       b) Distractores administrativos, generales o irrelevantes para una crisis (datos de cafetería, papelería, estacionamiento, jardinería, trámites rutinarios, superficie del edificio, carnets o estadísticas descriptivas neutras).
+       a) Operación completamente normal, estable y holgada sin impacto decisorio (ocupación baja o moderada de 15%–55%, tiempos de espera cortos de 1–5 min, inventarios completos, equipos 100% operativos).
+       b) Distractores administrativos, triviales o irrelevantes para el análisis del escenario (cafetería, papelería, estacionamiento de visitas, jardinería, trámites rutinarios, carnets, decoración o datos descriptivos inconsecuentes).
      * PROHIBICIÓN LÉXICA Y NUMÉRICA EN "ponderacion": 0: NUNCA uses en ellos palabras de alarma o fallo ("Alerta", "Crítico", "Colapso", "Déficit", "Desabastecimiento", "Saturación", "Cuello de botella", "Severo", "Demora", "Retraso", "Faltante", "Al límite", "Riesgo", "Urgente") ni cifras de sobrecarga, abandono o escasez.
-5. Distribución dinámica de "categoria" (campo opcional):
-   - Un botón puede incluir "categoria" o omitirla.
-   - Cuando la incluyas, su valor DEBE ser EXACTAMENTE uno de estos 4 strings (respetando mayúsculas y ausencia de tildes):
-     * "Puntos Criticos de Congestion"
-     * "Flujo entre Zonas"
-     * "Horas Pico"
-     * "Capacidad del sistema"
-   - Distribuye los botones dinámicamente: incluye alrededor de 24 a 31 botones repartidos entre las 4 categorías (asegurando que las 4 aparezcan) y deja entre 12 y 19 botones SIN la propiedad "categoria".
+5. Distribución dinámica de ${MIN_CATEGORIAS} a ${MAX_CATEGORIAS} categorías (campo "categoria" opcional):
+   - Diseña entre ${MIN_CATEGORIAS} y ${MAX_CATEGORIAS} categorías temáticas propias del tema solicitado (nombres breves y claros en español de 2 a 4 palabras, usando exactamente el mismo string en todos los botones que pertenezcan a una misma categoría).
+   - NUNCA generes menos de ${MIN_CATEGORIAS} ni más de ${MAX_CATEGORIAS} categorías distintas en todo el JSON, y asegúrate de que cada una aparezca en varios botones.
+   - El campo "categoria" es opcional tanto en botones correctos (1.0) como en incorrectos (0): asigna una de tus ${MIN_CATEGORIAS}–${MAX_CATEGORIAS} categorías a alrededor del 65%–80% de los botones y deja el 20%–35% restante SIN la propiedad "categoria".
    - Coherencia entre "categoria" y "ponderacion":
-     * Si un botón tiene "ponderacion": 0 y además posee una "categoria", su texto NO debe describir un problema ni una urgencia: debe reflejar un punto monitoreado despejado/sin congestión, un flujo fluido normal, una franja horaria informativa estable o una capacidad holgada/descriptiva, para que nunca compita en importancia con los botones de "ponderacion": 1.0.
+     * Si un botón tiene "ponderacion": 0 y además posee una "categoria", su texto NO debe describir un problema ni un indicador crítico: debe reflejar un aspecto despejado/holgado o un dato trivial/distractor dentro de esa temática, para que nunca compita en importancia con los botones de "ponderacion": 1.0.
 6. Ningún "texto" puede estar vacío. No incluyas propiedades extra ni explicaciones o markdown fuera del objeto JSON.
 `;
 
@@ -325,6 +400,10 @@ module.exports = {
   getGeminiModel,
   ORIGINAL_JSON,
   CATEGORIAS_VALIDAS,
+  MIN_BOTONES,
+  MAX_BOTONES,
+  MIN_CATEGORIAS,
+  MAX_CATEGORIAS,
   obtenerJsonOriginal,
   formatearJsonBotones,
   generarPropuestaGemini,

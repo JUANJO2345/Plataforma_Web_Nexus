@@ -10,14 +10,27 @@ const TEMAS_SUGERIDOS = [
   'Ciberseguridad y Banca Digital'
 ];
 
-const FILTROS_CATEGORIA = [
-  { id: 'TODOS', label: 'Todos' },
-  { id: 'Puntos Criticos de Congestion', label: 'Puntos Críticos de Congestión' },
-  { id: 'Flujo entre Zonas', label: 'Flujo entre Zonas' },
-  { id: 'Horas Pico', label: 'Horas Pico' },
-  { id: 'Capacidad del sistema', label: 'Capacidad del sistema' },
-  { id: 'SIN_CATEGORIA', label: 'Sin categoría' }
-];
+/**
+ * Extrae las categorías únicas presentes en un arreglo de botones,
+ * deduplicando sin distinguir mayúsculas ni tildes y preservando el primer nombre visto.
+ */
+function extraerCategorias(botones = []) {
+  if (!Array.isArray(botones)) return [];
+  const vistas = new Map();
+  for (const btn of botones) {
+    if (typeof btn?.categoria !== 'string') continue;
+    const limpia = btn.categoria.replace(/\s+/g, ' ').trim();
+    if (!limpia) continue;
+    const clave = limpia
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    if (!vistas.has(clave)) {
+      vistas.set(clave, limpia);
+    }
+  }
+  return Array.from(vistas.values());
+}
 
 /**
  * Formatea el JSON para vista previa conservando "ponderacion": 1.0 y "ponderacion": 0.
@@ -42,6 +55,7 @@ export default function ContenidoIaPanel() {
   const [cargandoOriginal, setCargandoOriginal] = useState(false);
   const [restaurando, setRestaurando] = useState(false);
   const [propuesta, setPropuesta] = useState(null);
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
   const [filtroCategoria, setFiltroCategoria] = useState('TODOS');
   const [mensajeExito, setMensajeExito] = useState(null);
   const [error, setError] = useState(null);
@@ -109,7 +123,7 @@ export default function ContenidoIaPanel() {
   const handleGenerarPropuesta = async (e) => {
     e.preventDefault();
     if (!tema.trim() && !peticion.trim()) {
-      setError('Por favor indica un tema principal para adaptar los 43 botones con IA.');
+      setError('Por favor indica un tema principal para generar la propuesta de botones con IA.');
       return;
     }
 
@@ -133,6 +147,7 @@ export default function ContenidoIaPanel() {
       }
 
       setPropuesta(data.propuesta);
+      setCategoriasDisponibles(extraerCategorias(data.propuesta?.botones));
       setFiltroCategoria('TODOS');
     } catch (err) {
       setError(err.message);
@@ -155,6 +170,7 @@ export default function ContenidoIaPanel() {
       }
 
       setPropuesta(data.propuesta);
+      setCategoriasDisponibles(extraerCategorias(data.propuesta?.botones));
       setFiltroCategoria('TODOS');
       setMensajeExito({
         tipo: 'info',
@@ -185,6 +201,7 @@ export default function ContenidoIaPanel() {
       }
 
       setPropuesta(data.propuesta);
+      setCategoriasDisponibles(extraerCategorias(data.propuesta?.botones));
       setFiltroCategoria('TODOS');
       setMensajeExito({
         tipo: 'exito',
@@ -201,7 +218,7 @@ export default function ContenidoIaPanel() {
     }
   };
 
-  // Actualizar texto de un botón específico por su índice real (0..42)
+  // Actualizar texto de un botón específico por su índice
   const actualizarTextoBoton = (indice, nuevoTexto) => {
     if (!propuesta?.botones) return;
     const botonesActualizados = propuesta.botones.map((btn, idx) =>
@@ -237,6 +254,7 @@ export default function ContenidoIaPanel() {
   // Descartar propuesta (no toca Drive)
   const handleDescartar = () => {
     setPropuesta(null);
+    setCategoriasDisponibles([]);
     setFiltroCategoria('TODOS');
     setError(null);
     setMensajeExito({
@@ -289,6 +307,18 @@ export default function ContenidoIaPanel() {
   };
 
   const botones = Array.isArray(propuesta?.botones) ? propuesta.botones : [];
+  const totalBotones = botones.length;
+  const totalCorrectos = botones.filter((b) => b.ponderacion === 1).length;
+  const totalIncorrectos = totalBotones - totalCorrectos;
+  const porcentajeIncorrectos = totalBotones > 0 ? Math.round((totalIncorrectos / totalBotones) * 100) : 0;
+  const categoriasActivas = extraerCategorias(botones);
+
+  const filtrosCategoria = [
+    { id: 'TODOS', label: 'Todos' },
+    ...categoriasDisponibles.map((cat) => ({ id: cat, label: cat })),
+    { id: 'SIN_CATEGORIA', label: 'Sin categoría' }
+  ];
+
   const botonesFiltrados = botones
     .map((boton, indice) => ({ boton, indice }))
     .filter(({ boton }) => {
@@ -312,7 +342,7 @@ export default function ContenidoIaPanel() {
             Contenido con Inteligencia Artificial (Gemini Flash)
           </h2>
           <p className="font-mono-label text-on-surface-variant text-[12px] mt-1 max-w-2xl">
-            Indica un tema para que Gemini genere dinámicamente los textos, cifras, ponderaciones y categorías manteniendo la estructura de 43 botones. También puedes recuperar o restaurar el JSON original en cualquier momento.
+            Indica un tema para que Gemini genere dinámicamente entre 40 y 60 botones, de 3 a 5 categorías temáticas y alrededor de un 40% de botones incorrectos (ponderación 0). También puedes recuperar o restaurar el JSON original en cualquier momento.
           </p>
         </div>
 
@@ -498,7 +528,7 @@ export default function ContenidoIaPanel() {
               {generando ? (
                 <>
                   <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
-                  <span>GENERANDO_43_BOTONES...</span>
+                  <span>GENERANDO_PROPUESTA...</span>
                 </>
               ) : (
                 <>
@@ -564,7 +594,7 @@ export default function ContenidoIaPanel() {
           </div>
         </div>
 
-        {/* Columna Derecha: Vista Previa y Edición Segura de los 43 Botones */}
+        {/* Columna Derecha: Vista Previa y Edición Segura de los Botones */}
         <div className="lg:col-span-7 space-y-6">
           <div className="border border-primary/30 bg-surface-container-low/40 p-6 backdrop-blur-md space-y-5">
             <div className="flex items-center justify-between border-b border-primary/20 pb-3">
@@ -584,21 +614,26 @@ export default function ContenidoIaPanel() {
                   Sin propuesta generada
                 </p>
                 <p className="font-mono-label text-on-surface-variant text-[11px] max-w-md mx-auto mt-1">
-                  Escribe un tema a la izquierda y pulsa "Generar Propuesta con IA", o carga el JSON original para inspeccionar y editar los 43 botones antes de guardar en Drive.
+                  Escribe un tema a la izquierda y pulsa "Generar Propuesta con IA", o carga el JSON original para inspeccionar y editar los botones antes de guardar en Drive.
                 </p>
               </div>
             ) : (
               <div className="space-y-5">
-                <div className="bg-primary/5 border border-primary/30 p-3 font-mono-label text-[11px] text-primary flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[18px]">info</span>
-                  <span>
-                    Edita el <strong>texto</strong>, cambia la <strong>categoría</strong> o alterna la ponderación entre <strong>1.0</strong> y <strong>0</strong> en cualquiera de los 43 botones.
-                  </span>
+                <div className="bg-primary/5 border border-primary/30 p-3 font-mono-label text-[11px] text-primary flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[18px] mt-0.5">info</span>
+                  <div className="space-y-1">
+                    <div>
+                      Edita el <strong>texto</strong>, cambia la <strong>categoría</strong> o alterna la ponderación entre <strong>1.0</strong> y <strong>0</strong> en cualquiera de los <strong>{botones.length} botones</strong>.
+                    </div>
+                    <div className="text-[10px] text-on-surface-variant">
+                      Correctos (1.0): <strong className="text-secondary">{totalCorrectos}</strong> · Incorrectos (0): <strong className="text-orange-300">{totalIncorrectos} ({porcentajeIncorrectos}%)</strong> · Categorías: <strong className="text-primary">{categoriasActivas.length}</strong>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Filtros rápidos por Categoría */}
                 <div className="flex flex-wrap gap-1.5">
-                  {FILTROS_CATEGORIA.map((f) => {
+                  {filtrosCategoria.map((f) => {
                     const count = f.id === 'TODOS'
                       ? botones.length
                       : f.id === 'SIN_CATEGORIA'
@@ -654,10 +689,9 @@ export default function ContenidoIaPanel() {
                               }`}
                             >
                               <option value="">Sin categoría</option>
-                              <option value="Puntos Criticos de Congestion">Puntos Criticos de Congestion</option>
-                              <option value="Flujo entre Zonas">Flujo entre Zonas</option>
-                              <option value="Horas Pico">Horas Pico</option>
-                              <option value="Capacidad del sistema">Capacidad del sistema</option>
+                              {categoriasDisponibles.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
                             </select>
                           </div>
 
@@ -775,11 +809,12 @@ export default function ContenidoIaPanel() {
                         try {
                           const parsed = JSON.parse(log.contenidoNuevo);
                           if (!parsed || !Array.isArray(parsed.botones)) {
-                            setError('Esta versión histórica usa un formato anterior sin el arreglo "botones" de 43 elementos.');
+                            setError('Esta versión histórica usa un formato anterior sin el arreglo "botones" válido.');
                             return;
                           }
                           setError(null);
                           setPropuesta(parsed);
+                          setCategoriasDisponibles(extraerCategorias(parsed.botones));
                           setFiltroCategoria('TODOS');
                           setTema(log.tema || '');
                           setPeticion(log.peticion || '');

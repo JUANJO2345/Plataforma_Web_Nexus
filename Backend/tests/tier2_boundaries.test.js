@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { UniqueConstraintError, ValidationError, ValidationErrorItem } = require('sequelize');
 const {
+  ORIGINAL_JSON,
+  validarFormatoPropuesta,
+  reconstruirPropuestaDesdePlantilla
+} = require('../utils/geminiService');
+const {
   BACKEND_DIR,
   createNonexistentEnvPath,
   createTempDbPath,
@@ -551,12 +556,19 @@ describe('Tier 2 — Boundary Value Analysis, Validation & RBAC/IDOR Negative Te
       });
       assert.equal(missingProp.status, 400);
 
-      const wrongCount = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
+      const tooFew = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
         method: 'POST',
         token: fx.users.profA.token,
-        body: { propuesta: { botones: baseBotones.slice(0, 42) } }
+        body: { propuesta: { botones: baseBotones.slice(0, 39) } }
       });
-      assert.equal(wrongCount.status, 400);
+      assert.equal(tooFew.status, 400);
+
+      const tooMany = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
+        method: 'POST',
+        token: fx.users.profA.token,
+        body: { propuesta: { botones: [...baseBotones, ...baseBotones.slice(0, 18)] } }
+      });
+      assert.equal(tooMany.status, 400);
 
       const badPonderacion = baseBotones.map((b, i) => (i === 0 ? { ...b, ponderacion: 0.5 } : b));
       const badPondRes = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
@@ -566,13 +578,155 @@ describe('Tier 2 — Boundary Value Analysis, Validation & RBAC/IDOR Negative Te
       });
       assert.equal(badPondRes.status, 400);
 
-      const badCategoria = baseBotones.map((b, i) => (i === 0 ? { ...b, categoria: 'Categoria Inexistente' } : b));
-      const badCatRes = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
+      const tooFewCategories = baseBotones.map((b, i) => {
+        const copy = { texto: b.texto, ponderacion: b.ponderacion };
+        if (i < 2) copy.categoria = `Categoria Unica ${i + 1}`;
+        return copy;
+      });
+      const fewCatRes = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
         method: 'POST',
         token: fx.users.profA.token,
-        body: { propuesta: { botones: badCategoria } }
+        body: { propuesta: { botones: tooFewCategories } }
       });
-      assert.equal(badCatRes.status, 400);
+      assert.equal(fewCatRes.status, 400);
+
+      const tooManyCategories = baseBotones.map((b, i) => {
+        if (i === 0) return { ...b, categoria: 'Categoria Extra 1' };
+        if (i === 1) return { ...b, categoria: 'Categoria Extra 2' };
+        return b;
+      });
+      const manyCatRes = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
+        method: 'POST',
+        token: fx.users.profA.token,
+        body: { propuesta: { botones: tooManyCategories } }
+      });
+      assert.equal(manyCatRes.status, 400);
+
+      const nonStringCategory = baseBotones.map((b, i) => (i === 0 ? { ...b, categoria: 123 } : b));
+      const nonStrCatRes = await requestJson(harness.baseUrl, '/api/ai/aplicar', {
+        method: 'POST',
+        token: fx.users.profA.token,
+        body: { propuesta: { botones: nonStringCategory } }
+      });
+      assert.equal(nonStrCatRes.status, 400);
+    });
+  });
+
+  describe('GeminiService Dynamic Bounds & Category Validation', () => {
+    function buildButtons(total, categories, zeroCount) {
+      return Array.from({ length: total }, (_, idx) => {
+        const boton = {
+          texto: `Indicador dinamico #${idx + 1}`,
+          ponderacion: idx < zeroCount ? 0 : 1.0
+        };
+        if (categories.length > 0 && idx < Math.floor(total * 0.75)) {
+          boton.categoria = categories[idx % categories.length];
+        }
+        return boton;
+      });
+    }
+
+    it('validarFormatoPropuesta accepts 40 buttons (3 categories, 40% pond 0), 60 buttons (5 categories, 40% pond 0), and ORIGINAL_JSON', () => {
+      const minValid = validarFormatoPropuesta({
+        botones: buildButtons(40, ['Triaje Urgencias', 'Capacidad UCI', 'Abastecimiento'], 16)
+      });
+      assert.equal(minValid.botones.length, 40);
+      assert.equal(minValid.botones.filter((b) => b.ponderacion === 0).length, 16);
+
+      const maxValid = validarFormatoPropuesta({
+        botones: buildButtons(60, ['Cat Uno', 'Cat Dos', 'Cat Tres', 'Cat Cuatro', 'Cat Cinco'], 24)
+      });
+      assert.equal(maxValid.botones.length, 60);
+      assert.equal(maxValid.botones.filter((b) => b.ponderacion === 0).length, 24);
+
+      const origValid = validarFormatoPropuesta(ORIGINAL_JSON);
+      assert.equal(origValid.botones.length, 43);
+    });
+
+    it('validarFormatoPropuesta rejects out-of-range button counts, category counts, and invalid fields', () => {
+      const valid40 = buildButtons(40, ['Cat A', 'Cat B', 'Cat C'], 16);
+
+      assert.throws(() => validarFormatoPropuesta({ botones: valid40.slice(0, 39) }), /entre 40 y 60/);
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: buildButtons(61, ['Cat A', 'Cat B', 'Cat C'], 24) }),
+        /entre 40 y 60/
+      );
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: buildButtons(40, ['Cat A', 'Cat B'], 16) }),
+        /entre 3 y 5/
+      );
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: buildButtons(40, ['C1', 'C2', 'C3', 'C4', 'C5', 'C6'], 16) }),
+        /entre 3 y 5/
+      );
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: valid40.map((b, i) => (i === 0 ? { ...b, categoria: 99 } : b)) }),
+        /cadena de texto/
+      );
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: valid40.map((b, i) => (i === 0 ? { ...b, texto: '   ' } : b)) }),
+        /no vacía/
+      );
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: valid40.map((b, i) => (i === 0 ? { ...b, ponderacion: true } : b)) }),
+        /0 o 1\.0/
+      );
+      assert.throws(
+        () => validarFormatoPropuesta({ botones: valid40.map((b, i) => (i === 0 ? { ...b, ponderacion: 0.7 } : b)) }),
+        /0 o 1\.0/
+      );
+    });
+
+    it('reconstruirPropuestaDesdePlantilla preserves 50 dynamic buttons & 5 custom categories, deduplicates accents/case, caps >60 & >5, and rejects <40', () => {
+      const custom50 = buildButtons(
+        50,
+        ['Generación Solar', 'Red de Transmisión', 'Demanda Industrial', 'Almacenamiento BESS', 'Subestaciones'],
+        20
+      );
+      const res50 = reconstruirPropuestaDesdePlantilla({ botones: custom50 });
+      assert.equal(res50.botones.length, 50);
+      assert.equal(res50.botones.filter((b) => b.ponderacion === 0).length, 20);
+      assert.equal(
+        new Set(res50.botones.map((b) => b.categoria).filter(Boolean)).size,
+        5
+      );
+
+      // Deduplicate accent/case variants of the same category across 40 buttons
+      const variants40 = buildButtons(40, ['Gestión Clínica', 'Capacidad Operativa', 'Rutas Críticas'], 16);
+      variants40[3].categoria = 'gestion clinica';
+      variants40[6].categoria = 'GESTIÓN CLÍNICA';
+      const resDedup = reconstruirPropuestaDesdePlantilla({ botones: variants40 });
+      const uniqueCatsDedup = new Set(resDedup.botones.map((b) => b.categoria).filter(Boolean));
+      assert.equal(uniqueCatsDedup.size, 3);
+      assert.equal(resDedup.botones[3].categoria, 'Gestión Clínica');
+      assert.equal(resDedup.botones[6].categoria, 'Gestión Clínica');
+
+      // Cap >60 buttons to 60 and reduce >5 categories to the top 5 most frequent
+      const raw65 = Array.from({ length: 65 }, (_, idx) => {
+        let categoria;
+        if (idx < 12) categoria = 'Top Uno';
+        else if (idx < 23) categoria = 'Top Dos';
+        else if (idx < 33) categoria = 'Top Tres';
+        else if (idx < 42) categoria = 'Top Cuatro';
+        else if (idx < 50) categoria = 'Top Cinco';
+        else if (idx < 53) categoria = 'Extra Seis';
+        else if (idx < 55) categoria = 'Extra Siete';
+        return { texto: `Elemento ${idx + 1}`, ponderacion: idx < 26 ? 0 : 1.0, categoria };
+      });
+      const resCapped = reconstruirPropuestaDesdePlantilla({ botones: raw65 });
+      assert.equal(resCapped.botones.length, 60);
+      const keptCats = new Set(resCapped.botones.map((b) => b.categoria).filter(Boolean));
+      assert.deepEqual(keptCats, new Set(['Top Uno', 'Top Dos', 'Top Tres', 'Top Cuatro', 'Top Cinco']));
+      assert.equal(resCapped.botones[51].categoria, undefined);
+      assert.equal(resCapped.botones[54].categoria, undefined);
+
+      // Reject <40 valid buttons without padding from ORIGINAL_JSON
+      assert.throws(
+        () => reconstruirPropuestaDesdePlantilla({
+          botones: buildButtons(39, ['Cat A', 'Cat B', 'Cat C'], 15)
+        }),
+        /entre 40 y 60/
+      );
     });
   });
 
