@@ -1,46 +1,59 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Op } = require('sequelize');
 const { Usuario, sequelize } = require('../models');
 const { JWT_SECRET } = require('../middlewares/auth');
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Registro de operadores
 async function register(req, res, next) {
   try {
-    console.log('\n--- [API_REGISTER_REQUEST] ---');
-    console.log('Body recibido:', req.body);
+    const body = req.body || {};
+    const identificador = body.username !== undefined ? body.username : body.correo;
+    const clave = body.password !== undefined ? body.password : body.contrasena;
 
-    const identificador = req.body.username || req.body.correo;
-    const clave = req.body.password || req.body.contrasena;
-
-    if (!identificador || !clave) {
-      console.log('[!] Registro rechazado: faltan parámetros en el Body.');
-      return res.status(400).json({ message: 'Faltan parámetros obligatorios.' });
+    if (typeof identificador !== 'string' || typeof clave !== 'string') {
+      const msg = 'Correo y contraseña deben ser cadenas de texto válidas.';
+      return res.status(400).json({ message: msg, error: msg });
     }
 
     const correoLimpio = identificador.toLowerCase().trim();
-
-    // Verificación: no se permite registrar el mismo operador dos veces.
-    const usuarioExiste = await Usuario.findOne({ where: { correo: correoLimpio } });
-    if (usuarioExiste) {
-      console.log(`[!] Registro rechazado: el correo ${correoLimpio} ya existe.`);
-      return res.status(400).json({ message: 'El nombre de operador ya está registrado.' });
+    if (!correoLimpio || !clave) {
+      const msg = 'Faltan parámetros obligatorios.';
+      return res.status(400).json({ message: msg, error: msg });
     }
 
-    // Nombre automático: toma lo que esté antes del '@' para llenar el campo obligatorio del modelo.
-    const nombreAutomatico = correoLimpio.split('@')[0];
+    if (!EMAIL_REGEX.test(correoLimpio)) {
+      const msg = 'Formato de correo inválido.';
+      return res.status(400).json({ message: msg, error: msg });
+    }
+
+    if (clave.length < 6) {
+      const msg = 'La contraseña debe tener al menos 6 caracteres.';
+      return res.status(400).json({ message: msg, error: msg });
+    }
+
+    // Verificación: no se permite registrar el mismo correo dos veces.
+    const usuarioExiste = await Usuario.findOne({
+      where: sequelize.where(sequelize.fn('LOWER', sequelize.col('correo')), correoLimpio)
+    });
+    if (usuarioExiste) {
+      const msg = 'El correo ya está registrado.';
+      return res.status(409).json({ message: msg, error: msg });
+    }
+
+    const nombreOpcional = typeof body.nombre === 'string' ? body.nombre.trim() : '';
+    const nombreFinal = nombreOpcional || correoLimpio.split('@')[0];
 
     // Cifrado de contraseña con bcrypt.
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(clave, saltRounds);
 
     const nuevoUsuario = await Usuario.create({
-      nombre: nombreAutomatico,
+      nombre: nombreFinal,
       correo: correoLimpio,
       contrasena: hashedPassword
     });
-
-    console.log(`>> [SUCCESS] Nuevo operador creado con éxito: ${correoLimpio} (Nombre: ${nombreAutomatico})`);
 
     const token = jwt.sign(
       { id: nuevoUsuario.id, correo: nuevoUsuario.correo, rol: nuevoUsuario.rol },
@@ -48,8 +61,10 @@ async function register(req, res, next) {
       { expiresIn: '24h' }
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       id: nuevoUsuario.id,
+      nombre: nuevoUsuario.nombre,
+      correo: nuevoUsuario.correo,
       username: nuevoUsuario.correo,
       rol: nuevoUsuario.rol,
       token,
@@ -64,41 +79,26 @@ async function register(req, res, next) {
 // Inicio de sesión / Login
 async function login(req, res, next) {
   try {
-    console.log('\n--- [API_LOGIN_REQUEST] ---');
-    console.log('Body recibido:', req.body);
+    const body = req.body || {};
+    const identificador = body.username !== undefined ? body.username : body.correo;
+    const clave = body.password !== undefined ? body.password : body.contrasena;
 
-    const identificador = req.body.username || req.body.correo;
-    const clave = req.body.password || req.body.contrasena;
-
-    if (!identificador || !clave) {
-      return res.status(400).json({ message: 'Correo y clave requeridos.' });
+    if (typeof identificador !== 'string' || typeof clave !== 'string' || !identificador.trim() || !clave) {
+      const msg = 'Correo y clave requeridos.';
+      return res.status(400).json({ message: msg, error: msg });
     }
 
     const identificadorLimpio = identificador.toLowerCase().trim();
-    console.log('>> Buscando operador:', identificadorLimpio);
 
     const usuario = await Usuario.findOne({
-      where: {
-        [Op.or]: [
-          sequelize.where(sequelize.fn('LOWER', sequelize.col('correo')), identificadorLimpio),
-          sequelize.where(sequelize.fn('LOWER', sequelize.col('nombre')), identificadorLimpio),
-          { correo: { [Op.like]: `${identificadorLimpio}@%` } }
-        ]
-      }
+      where: sequelize.where(sequelize.fn('LOWER', sequelize.col('correo')), identificadorLimpio)
     });
 
-    if (!usuario) {
-      console.log(`[!] Login fallido: el usuario o correo ${identificadorLimpio} no existe.`);
-      return res.status(401).json({ message: 'Credenciales inválidas.' });
+    const passwordValido = usuario ? await bcrypt.compare(clave, usuario.contrasena) : false;
+    if (!usuario || !passwordValido) {
+      const msg = 'Credenciales inválidas.';
+      return res.status(401).json({ message: msg, error: msg });
     }
-
-    const passwordValido = await bcrypt.compare(clave, usuario.contrasena);
-    if (!passwordValido) {
-      console.log(`[!] Login fallido: contraseña incorrecta para ${identificadorLimpio}.`);
-      return res.status(401).json({ message: 'Fallo en la verificación de seguridad.' });
-    }
-
-    console.log(`>> [SUCCESS] Enlace establecido para: ${identificadorLimpio}`);
 
     const token = jwt.sign(
       { id: usuario.id, correo: usuario.correo, rol: usuario.rol },
@@ -106,8 +106,10 @@ async function login(req, res, next) {
       { expiresIn: '24h' }
     );
 
-    res.json({
+    return res.json({
       id: usuario.id,
+      nombre: usuario.nombre,
+      correo: usuario.correo,
       username: usuario.correo,
       rol: usuario.rol,
       token,
@@ -119,7 +121,33 @@ async function login(req, res, next) {
   }
 }
 
+// Verificación de sesión actual contra base de datos
+async function me(req, res, next) {
+  try {
+    const usuario = await Usuario.findByPk(req.usuario.id, {
+      attributes: ['id', 'nombre', 'correo', 'rol']
+    });
+
+    if (!usuario) {
+      const msg = 'Sesión inválida o usuario no encontrado.';
+      return res.status(401).json({ message: msg, error: msg });
+    }
+
+    return res.json({
+      id: usuario.id,
+      nombre: usuario.nombre,
+      correo: usuario.correo,
+      username: usuario.correo,
+      rol: usuario.rol
+    });
+  } catch (error) {
+    console.error('[!] Error al validar sesión actual (/me):', error.message);
+    next(error);
+  }
+}
+
 module.exports = {
   register,
-  login
+  login,
+  me
 };
