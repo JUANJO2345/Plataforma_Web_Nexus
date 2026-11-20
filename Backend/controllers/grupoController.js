@@ -8,8 +8,11 @@ const {
 // Obtener todos los grupos con su profesor y estudiantes inscritos
 async function obtenerTodos(req, res, next) {
   try {
+    const rol = req.usuario.rol || 'estudiante';
     const whereClause = {};
-    if (req.query.profesorId) {
+    if (rol === 'profesor') {
+      whereClause.profesorId = Number(req.usuario.id);
+    } else if (rol === 'admin' && req.query.profesorId) {
       whereClause.profesorId = req.query.profesorId;
     }
 
@@ -19,7 +22,6 @@ async function obtenerTodos(req, res, next) {
       order: [['id', 'ASC']]
     });
 
-    const rol = req.usuario.rol || 'estudiante';
     // Si el usuario es estudiante u operador, solo puede ver los grupos en los que está inscrito
     const estudianteIdFiltro = (rol === 'estudiante' || rol === 'user')
       ? Number(req.usuario.id)
@@ -44,6 +46,9 @@ async function obtenerPorId(req, res, next) {
     if (!grupo) return res.status(404).json({ error: 'Grupo no encontrado' });
 
     const rol = req.usuario.rol || 'estudiante';
+    if (rol === 'profesor' && Number(grupo.profesorId) !== Number(req.usuario.id)) {
+      return res.status(403).json({ error: 'Acceso restringido: Este grupo no está asignado a tu cuenta.' });
+    }
     if (rol === 'estudiante' || rol === 'user') {
       const estaInscrito = grupo.estudiantes && grupo.estudiantes.some(e => Number(e.id) === Number(req.usuario.id));
       if (!estaInscrito) {

@@ -1,10 +1,18 @@
 const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
 const { Usuario } = require('../models');
+
+const ROLES_VALIDOS = ['admin', 'profesor', 'estudiante'];
 
 // Obtener todos los usuarios (solo admin y profesor)
 async function obtenerTodos(req, res, next) {
   try {
+    const whereClause = req.usuario.rol === 'profesor'
+      ? { rol: { [Op.in]: ['estudiante', 'user'] } }
+      : {};
+
     const usuarios = await Usuario.findAll({
+      where: whereClause,
       attributes: { exclude: ['contrasena'] },
       order: [['id', 'ASC']]
     });
@@ -39,15 +47,23 @@ async function crear(req, res, next) {
       return res.status(400).json({ error: 'Faltan parámetros obligatorios (correo y contraseña).' });
     }
 
+    let rolFinal = 'estudiante';
+    if (rol !== undefined && rol !== null && rol !== '') {
+      if (!ROLES_VALIDOS.includes(rol)) {
+        return res.status(400).json({ error: `Rol inválido. Valores permitidos: ${ROLES_VALIDOS.join(', ')}.` });
+      }
+      rolFinal = rol;
+    }
+
     const correoLimpio = correo.toLowerCase().trim();
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(contrasena, saltRounds);
 
     const nuevoUsuario = await Usuario.create({
-      nombre: nombre || correoLimpio.split('@')[0],
+      nombre: (typeof nombre === 'string' && nombre.trim()) ? nombre.trim() : correoLimpio.split('@')[0],
       correo: correoLimpio,
       contrasena: hashedPassword,
-      rol: rol || 'user'
+      rol: rolFinal
     });
     const { contrasena: _, ...usuarioSeguro } = nuevoUsuario.toJSON();
     res.status(201).json(usuarioSeguro);
@@ -66,19 +82,31 @@ async function actualizar(req, res, next) {
     const usuario = await Usuario.findByPk(req.params.id);
     if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
 
+    const body = req.body || {};
+    const cambios = {};
+
+    if (typeof body.nombre === 'string' && body.nombre.trim() !== '') {
+      cambios.nombre = body.nombre.trim();
+    }
+
+    if (typeof body.correo === 'string' && body.correo.trim() !== '') {
+      cambios.correo = body.correo.toLowerCase().trim();
+    }
+
     // Solo admin puede modificar el rol del usuario
-    if (req.body.rol && req.usuario.rol !== 'admin') {
-      delete req.body.rol;
+    if (req.usuario.rol === 'admin' && body.rol !== undefined) {
+      if (!ROLES_VALIDOS.includes(body.rol)) {
+        return res.status(400).json({ error: `Rol inválido. Valores permitidos: ${ROLES_VALIDOS.join(', ')}.` });
+      }
+      cambios.rol = body.rol;
     }
 
     // Si en la actualización viene una contraseña nueva no vacía, se cifra antes de guardar.
-    if (req.body.contrasena && typeof req.body.contrasena === 'string' && req.body.contrasena.trim() !== '') {
-      req.body.contrasena = await bcrypt.hash(req.body.contrasena, 10);
-    } else {
-      delete req.body.contrasena;
+    if (typeof body.contrasena === 'string' && body.contrasena.trim() !== '') {
+      cambios.contrasena = await bcrypt.hash(body.contrasena, 10);
     }
 
-    await usuario.update(req.body);
+    await usuario.update(cambios);
     const { contrasena: _, ...usuarioSeguro } = usuario.toJSON();
     res.json({ message: 'Usuario actualizado con éxito', usuario: usuarioSeguro });
   } catch (error) {
