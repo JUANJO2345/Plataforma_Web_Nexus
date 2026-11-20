@@ -1,5 +1,16 @@
-const { generarPropuestaGemini, validarFormatoPropuesta } = require('../utils/geminiService');
-const { DEFAULT_FILE_ID, obtenerContenidoDrive, actualizarContenidoDrive } = require('../utils/driveService');
+const {
+  generarPropuestaGemini,
+  validarFormatoPropuesta,
+  obtenerJsonOriginal,
+  formatearJsonBotones,
+  getGeminiModel
+} = require('../utils/geminiService');
+const {
+  getDriveFileId,
+  hasDriveCredentials,
+  obtenerContenidoDrive,
+  actualizarContenidoDrive
+} = require('../utils/driveService');
 const { AiAuditLog, Usuario } = require('../models');
 
 /**
@@ -42,7 +53,7 @@ async function aplicarPropuesta(req, res, next) {
   try {
     const { propuesta, tema, peticion } = req.body;
     const usuarioId = req.usuario.id;
-    const archivoId = process.env.GOOGLE_DRIVE_FILE_ID || DEFAULT_FILE_ID;
+    const archivoId = getDriveFileId();
 
     if (!propuesta) {
       return res.status(400).json({ error: 'No se recibió ninguna propuesta para aplicar.' });
@@ -58,6 +69,12 @@ async function aplicarPropuesta(req, res, next) {
       });
     }
 
+    if (!archivoId) {
+      return res.status(503).json({
+        error: 'El ID del archivo de Google Drive (GOOGLE_DRIVE_FILE_ID) no está configurado en el backend.'
+      });
+    }
+
     // 1. Obtener contenido actual de Drive para conservar copia de respaldo (backup)
     let contenidoAnterior = null;
     try {
@@ -67,8 +84,9 @@ async function aplicarPropuesta(req, res, next) {
       // Si falla la lectura pero se desea proceder o alertar, lo registramos
     }
 
-    // 2. Actualizar el archivo en Google Drive
-    await actualizarContenidoDrive(propuestaValidada);
+    // 2. Actualizar el archivo en Google Drive con formato exacto ("ponderacion": 1.0 / 0)
+    const jsonFormateado = formatearJsonBotones(propuestaValidada);
+    await actualizarContenidoDrive(jsonFormateado);
 
     // 3. Registrar en auditoría quién aceptó el cambio, cuándo, sobre qué archivo y respaldo previo
     const auditRecord = await AiAuditLog.create({
@@ -77,7 +95,7 @@ async function aplicarPropuesta(req, res, next) {
       tema: tema || 'No especificado',
       peticion: peticion || 'No especificada',
       contenidoAnterior,
-      contenidoNuevo: JSON.stringify(propuestaValidada, null, 2)
+      contenidoNuevo: jsonFormateado
     });
 
     return res.json({
@@ -87,6 +105,64 @@ async function aplicarPropuesta(req, res, next) {
       auditId: auditRecord.id,
       actualizadoEn: auditRecord.createdAt,
       propuesta: propuestaValidada
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Devuelve el JSON original de 43 botones sin modificar Drive.
+ * GET /api/ai/original
+ */
+function obtenerOriginal(req, res) {
+  return res.json({
+    success: true,
+    propuesta: obtenerJsonOriginal()
+  });
+}
+
+/**
+ * Restaura directamente el JSON original en Google Drive y registra la operación en auditoría.
+ * POST /api/ai/restaurar
+ */
+async function restaurarOriginal(req, res, next) {
+  try {
+    const usuarioId = req.usuario.id;
+    const archivoId = getDriveFileId();
+    if (!archivoId) {
+      return res.status(503).json({
+        error: 'El ID del archivo de Google Drive (GOOGLE_DRIVE_FILE_ID) no está configurado en el backend.'
+      });
+    }
+    const original = obtenerJsonOriginal();
+    const jsonFormateado = formatearJsonBotones(original);
+
+    let contenidoAnterior = null;
+    try {
+      contenidoAnterior = await obtenerContenidoDrive();
+    } catch (driveReadErr) {
+      console.warn('[AI Controller] No se pudo leer el contenido previo de Drive para backup:', driveReadErr.message);
+    }
+
+    await actualizarContenidoDrive(jsonFormateado);
+
+    const auditRecord = await AiAuditLog.create({
+      usuarioId,
+      archivoId,
+      tema: 'JSON Original (Restauración)',
+      peticion: 'Restauración manual del JSON original por defecto',
+      contenidoAnterior,
+      contenidoNuevo: jsonFormateado
+    });
+
+    return res.json({
+      success: true,
+      mensaje: '¡JSON original restaurado exitosamente en Google Drive!',
+      archivoId,
+      auditId: auditRecord.id,
+      actualizadoEn: auditRecord.createdAt,
+      propuesta: original
     });
   } catch (error) {
     next(error);
@@ -106,7 +182,7 @@ async function obtenerHistorial(req, res, next) {
         {
           model: Usuario,
           as: 'usuario',
-          attributes: ['id', 'username', 'email', 'rol']
+          attributes: ['id', 'nombre', 'correo', 'rol']
         }
       ]
     });
@@ -123,32 +199,33 @@ async function obtenerHistorial(req, res, next) {
  */
 async function obtenerEstadoDrive(req, res, next) {
   try {
-    const archivoId = process.env.GOOGLE_DRIVE_FILE_ID || DEFAULT_FILE_ID;
-    const tieneGeminiKey = Boolean(process.env.GEMINI_API_KEY);
-    const tieneDriveCredentials = Boolean(
-      process.env.GOOGLE_SERVICE_ACCOUNT_KEY ||
-      (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY)
-    );
+    const archivoId = getDriveFileId();
+    const tieneGeminiKey = Boolean((process.env.GEMINI_API_KEY || '').trim());
+    const tieneDriveCredentials = hasDriveCredentials();
 
     let contenidoActual = null;
     let driveError = null;
 
     if (tieneDriveCredentials) {
-      try {
-        const raw = await obtenerContenidoDrive();
+      if (!archivoId) {
+        driveError = 'El ID del archivo de Google Drive (GOOGLE_DRIVE_FILE_ID) no está configurado en el backend.';
+      } else {
         try {
-          contenidoActual = JSON.parse(raw);
-        } catch {
-          contenidoActual = raw;
+          const raw = await obtenerContenidoDrive();
+          try {
+            contenidoActual = JSON.parse(raw);
+          } catch {
+            contenidoActual = raw;
+          }
+        } catch (err) {
+          driveError = err.message;
         }
-      } catch (err) {
-        driveError = err.message;
       }
     }
 
     return res.json({
       archivoId,
-      modeloGemini: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+      modeloGemini: getGeminiModel(),
       tieneGeminiKey,
       tieneDriveCredentials,
       driveError,
@@ -162,6 +239,8 @@ async function obtenerEstadoDrive(req, res, next) {
 module.exports = {
   obtenerPropuesta,
   aplicarPropuesta,
+  obtenerOriginal,
+  restaurarOriginal,
   obtenerHistorial,
   obtenerEstadoDrive
 };

@@ -2,14 +2,18 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_FILE_ID = '1mxonSdL8ydZQM0aOZn-0tTJZ3q4UgFK_';
+/**
+ * Obtiene el ID del archivo de Google Drive configurado en el entorno.
+ */
+function getDriveFileId() {
+  const fileId = (process.env.GOOGLE_DRIVE_FILE_ID || '').trim();
+  return fileId || null;
+}
 
 /**
- * Obtiene el cliente autenticado de Google Drive usando Service Account.
+ * Resuelve las credenciales de la cuenta de servicio de Google Drive sin exponer secretos.
  */
-function getDriveClient() {
-  const fileId = process.env.GOOGLE_DRIVE_FILE_ID || DEFAULT_FILE_ID;
-
+function resolveDriveCredentials() {
   let clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
   let privateKey = process.env.GOOGLE_PRIVATE_KEY;
 
@@ -45,12 +49,38 @@ function getDriveClient() {
     }
   }
 
+  return { clientEmail, privateKey };
+}
+
+/**
+ * Indica si existen credenciales válidas de Google Drive configuradas.
+ */
+function hasDriveCredentials() {
+  const { clientEmail, privateKey } = resolveDriveCredentials();
+  return Boolean(clientEmail && privateKey);
+}
+
+/**
+ * Obtiene el cliente autenticado de Google Drive usando Service Account.
+ */
+function getDriveClient() {
+  const fileId = getDriveFileId();
+  if (!fileId) {
+    const err = new Error('El ID del archivo de Google Drive (GOOGLE_DRIVE_FILE_ID) no está configurado en el backend.');
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const { clientEmail, privateKey } = resolveDriveCredentials();
+
   if (!clientEmail || !privateKey) {
-    throw new Error(
+    const err = new Error(
       'Credenciales de Google Drive no configuradas en el backend. ' +
       'Por favor configura GOOGLE_CLIENT_EMAIL y GOOGLE_PRIVATE_KEY en Backend/.env ' +
       'y comparte el archivo de Drive con dicho correo con rol de Editor.'
     );
+    err.statusCode = 503;
+    throw err;
   }
 
   // Corregir saltos de línea en la clave privada si viene con \n escapados
@@ -122,7 +152,8 @@ async function actualizarContenidoDrive(nuevoContenidoJson) {
 }
 
 module.exports = {
-  DEFAULT_FILE_ID,
+  getDriveFileId,
+  hasDriveCredentials,
   getDriveClient,
   obtenerContenidoDrive,
   actualizarContenidoDrive

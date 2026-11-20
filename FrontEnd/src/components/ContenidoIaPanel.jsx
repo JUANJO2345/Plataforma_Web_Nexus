@@ -1,14 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthStore';
 
 const TEMAS_SUGERIDOS = [
-  'Laboratorio de Química',
-  'Estación Espacial',
-  'Taller de Robótica',
-  'Anatomía y Medicina',
-  'Exploración Marina',
-  'Entorno Urbano y Tráfico'
+  'Sistema Hospitalario y Urgencias',
+  'Red Eléctrica Inteligente',
+  'Logística Portuaria y Aduanas',
+  'Gestión Hídrica y Acueductos',
+  'Aeropuerto Internacional',
+  'Ciberseguridad y Banca Digital'
 ];
+
+const FILTROS_CATEGORIA = [
+  { id: 'TODOS', label: 'Todos' },
+  { id: 'Puntos Criticos de Congestion', label: 'Puntos Críticos de Congestión' },
+  { id: 'Flujo entre Zonas', label: 'Flujo entre Zonas' },
+  { id: 'Horas Pico', label: 'Horas Pico' },
+  { id: 'Capacidad del sistema', label: 'Capacidad del sistema' },
+  { id: 'SIN_CATEGORIA', label: 'Sin categoría' }
+];
+
+/**
+ * Formatea el JSON para vista previa conservando "ponderacion": 1.0 y "ponderacion": 0.
+ */
+function formatearJsonVista(data) {
+  if (!data) return '';
+  return JSON.stringify(data, null, 2).replace(/"ponderacion":\s*1(?![.\d])/g, '"ponderacion": 1.0');
+}
 
 export default function ContenidoIaPanel() {
   const { authFetch } = useAuth();
@@ -22,24 +39,23 @@ export default function ContenidoIaPanel() {
   // Estados de proceso
   const [generando, setGenerando] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [cargandoOriginal, setCargandoOriginal] = useState(false);
+  const [restaurando, setRestaurando] = useState(false);
   const [propuesta, setPropuesta] = useState(null);
+  const [filtroCategoria, setFiltroCategoria] = useState('TODOS');
   const [mensajeExito, setMensajeExito] = useState(null);
   const [error, setError] = useState(null);
 
   // Estados de Drive y Auditoría
   const [estadoSistema, setEstadoSistema] = useState(null);
+  const [cargandoEstado, setCargandoEstado] = useState(true);
   const [historial, setHistorial] = useState([]);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [mostrarHistorial, setMostrarHistorial] = useState(false);
   const [modalConfirmar, setModalConfirmar] = useState(false);
+  const [modalRestaurar, setModalRestaurar] = useState(false);
 
-  // Cargar estado inicial y de Drive
-  useEffect(() => {
-    cargarEstado();
-    cargarHistorial();
-  }, []);
-
-  const cargarEstado = async () => {
+  const cargarEstado = useCallback(async () => {
     try {
       const res = await authFetch('/api/ai/estado');
       if (res.ok) {
@@ -48,10 +64,12 @@ export default function ContenidoIaPanel() {
       }
     } catch (err) {
       console.error('Error cargando estado:', err);
+    } finally {
+      setCargandoEstado(false);
     }
-  };
+  }, [authFetch]);
 
-  const cargarHistorial = async () => {
+  const cargarHistorial = useCallback(async () => {
     try {
       setCargandoHistorial(true);
       const res = await authFetch('/api/ai/historial');
@@ -64,11 +82,19 @@ export default function ContenidoIaPanel() {
     } finally {
       setCargandoHistorial(false);
     }
-  };
+  }, [authFetch]);
 
-  // Manejadores de elementos sugeridos
+  // Cargar estado inicial y de Drive
+  useEffect(() => {
+    const inicializar = async () => {
+      await Promise.all([cargarEstado(), cargarHistorial()]);
+    };
+    inicializar();
+  }, [cargarEstado, cargarHistorial]);
+
+  // Manejadores de conceptos/elementos sugeridos
   const agregarElemento = () => {
-    const limpio = nuevoElemento.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const limpio = nuevoElemento.trim();
     if (limpio && !elementosSugeridos.includes(limpio)) {
       setElementosSugeridos([...elementosSugeridos, limpio]);
       setNuevoElemento('');
@@ -79,11 +105,11 @@ export default function ContenidoIaPanel() {
     setElementosSugeridos(elementosSugeridos.filter((e) => e !== item));
   };
 
-  // 1. Solicitar propuesta a Gemini
+  // 1. Solicitar propuesta a Gemini conservando estructura {"botones": [...]}
   const handleGenerarPropuesta = async (e) => {
     e.preventDefault();
-    if (!tema && !peticion) {
-      setError('Por favor indica un tema o escribe una petición para Gemini.');
+    if (!tema.trim() && !peticion.trim()) {
+      setError('Por favor indica un tema principal para adaptar los 43 botones con IA.');
       return;
     }
 
@@ -95,8 +121,8 @@ export default function ContenidoIaPanel() {
       const res = await authFetch('/api/ai/propuesta', {
         method: 'POST',
         body: JSON.stringify({
-          tema,
-          peticion,
+          tema: tema.trim(),
+          peticion: peticion.trim(),
           elementosSugeridos
         })
       });
@@ -107,6 +133,7 @@ export default function ContenidoIaPanel() {
       }
 
       setPropuesta(data.propuesta);
+      setFiltroCategoria('TODOS');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -114,26 +141,103 @@ export default function ContenidoIaPanel() {
     }
   };
 
-  // Alternar valor 0 <-> 1 en la propuesta
-  const toggleValor = (clave) => {
-    if (!propuesta) return;
-    setPropuesta({
-      ...propuesta,
-      [clave]: propuesta[clave] === 1 ? 0 : 1
-    });
+  // Cargar el JSON original en el editor sin tocar Drive
+  const handleCargarOriginal = async () => {
+    try {
+      setCargandoOriginal(true);
+      setError(null);
+      setMensajeExito(null);
+
+      const res = await authFetch('/api/ai/original');
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo obtener el JSON original.');
+      }
+
+      setPropuesta(data.propuesta);
+      setFiltroCategoria('TODOS');
+      setMensajeExito({
+        tipo: 'info',
+        texto: 'JSON original de 43 botones cargado en el editor.',
+        detalles: 'Puedes revisarlo, ajustarlo o guardarlo en Drive cuando lo desees.'
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCargandoOriginal(false);
+    }
   };
 
-  // Eliminar elemento de la propuesta
-  const eliminarDePropuesta = (clave) => {
-    if (!propuesta) return;
-    const copia = { ...propuesta };
-    delete copia[clave];
-    setPropuesta(copia);
+  // Restaurar directamente el JSON original en Google Drive
+  const handleRestaurarOriginalEnDrive = async () => {
+    try {
+      setRestaurando(true);
+      setError(null);
+      setMensajeExito(null);
+      setModalRestaurar(false);
+
+      const res = await authFetch('/api/ai/restaurar', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo restaurar el JSON original en Google Drive.');
+      }
+
+      setPropuesta(data.propuesta);
+      setFiltroCategoria('TODOS');
+      setMensajeExito({
+        tipo: 'exito',
+        texto: data.mensaje || '¡JSON original restaurado exitosamente en Google Drive!',
+        detalles: `Versión restaurada a las ${new Date(data.actualizadoEn).toLocaleTimeString()} (Audit ID: #${data.auditId})`
+      });
+
+      cargarHistorial();
+      cargarEstado();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRestaurando(false);
+    }
+  };
+
+  // Actualizar texto de un botón específico por su índice real (0..42)
+  const actualizarTextoBoton = (indice, nuevoTexto) => {
+    if (!propuesta?.botones) return;
+    const botonesActualizados = propuesta.botones.map((btn, idx) =>
+      idx === indice ? { ...btn, texto: nuevoTexto } : btn
+    );
+    setPropuesta({ ...propuesta, botones: botonesActualizados });
+  };
+
+  // Alternar ponderación 0 <-> 1.0 en un botón específico sin alterar estructura ni borrar slots
+  const togglePonderacionBoton = (indice) => {
+    if (!propuesta?.botones) return;
+    const botonesActualizados = propuesta.botones.map((btn, idx) =>
+      idx === indice ? { ...btn, ponderacion: btn.ponderacion === 1 ? 0 : 1.0 } : btn
+    );
+    setPropuesta({ ...propuesta, botones: botonesActualizados });
+  };
+
+  // Actualizar o quitar la categoría de un botón específico
+  const actualizarCategoriaBoton = (indice, nuevaCategoria) => {
+    if (!propuesta?.botones) return;
+    const botonesActualizados = propuesta.botones.map((btn, idx) => {
+      if (idx !== indice) return btn;
+      if (!nuevaCategoria) {
+        const copia = { ...btn };
+        delete copia.categoria;
+        return copia;
+      }
+      return { ...btn, categoria: nuevaCategoria };
+    });
+    setPropuesta({ ...propuesta, botones: botonesActualizados });
   };
 
   // Descartar propuesta (no toca Drive)
   const handleDescartar = () => {
     setPropuesta(null);
+    setFiltroCategoria('TODOS');
     setError(null);
     setMensajeExito({
       tipo: 'info',
@@ -143,8 +247,8 @@ export default function ContenidoIaPanel() {
 
   // 2. Aceptar y Guardar en Google Drive
   const handleAplicarEnDrive = async () => {
-    if (!propuesta || Object.keys(propuesta).length === 0) {
-      setError('No hay elementos en la propuesta para guardar.');
+    if (!propuesta || !Array.isArray(propuesta.botones) || propuesta.botones.length === 0) {
+      setError('No hay botones válidos en la propuesta para guardar.');
       return;
     }
 
@@ -158,8 +262,8 @@ export default function ContenidoIaPanel() {
         method: 'POST',
         body: JSON.stringify({
           propuesta,
-          tema,
-          peticion
+          tema: tema.trim() || 'Adaptación personalizada',
+          peticion: peticion.trim()
         })
       });
 
@@ -184,6 +288,15 @@ export default function ContenidoIaPanel() {
     }
   };
 
+  const botones = Array.isArray(propuesta?.botones) ? propuesta.botones : [];
+  const botonesFiltrados = botones
+    .map((boton, indice) => ({ boton, indice }))
+    .filter(({ boton }) => {
+      if (filtroCategoria === 'TODOS') return true;
+      if (filtroCategoria === 'SIN_CATEGORIA') return !boton.categoria;
+      return boton.categoria === filtroCategoria;
+    });
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto pb-12">
       {/* Encabezado del Módulo */}
@@ -199,7 +312,7 @@ export default function ContenidoIaPanel() {
             Contenido con Inteligencia Artificial (Gemini Flash)
           </h2>
           <p className="font-mono-label text-on-surface-variant text-[12px] mt-1 max-w-2xl">
-            Genera configuraciones de elementos para el entorno de Realidad Virtual. Gemini nunca modifica Drive directamente; solo tú decides si guardar la propuesta en el archivo JSON.
+            Indica un tema para que Gemini genere dinámicamente los textos, cifras, ponderaciones y categorías manteniendo la estructura de 43 botones. También puedes recuperar o restaurar el JSON original en cualquier momento.
           </p>
         </div>
 
@@ -208,21 +321,29 @@ export default function ContenidoIaPanel() {
           <div className="flex items-center gap-2 bg-surface-container-highest/60 px-3 py-1.5 border border-primary/20">
             <span className="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
             <span className="text-on-surface-variant">Modelo:</span>
-            <span className="text-primary font-bold">{estadoSistema?.modeloGemini || 'gemini-1.5-flash'}</span>
+            <span className="text-primary font-bold">
+              {estadoSistema?.modeloGemini || (cargandoEstado ? 'Cargando...' : 'No configurado')}
+            </span>
           </div>
 
           <div className="flex items-center gap-2 bg-surface-container-highest/60 px-3 py-1.5 border border-orange-400/20">
             <span className={`w-2 h-2 rounded-full ${estadoSistema?.tieneDriveCredentials ? 'bg-secondary' : 'bg-orange-400'}`}></span>
             <span className="text-on-surface-variant">Drive Target:</span>
-            <a
-              href={`https://drive.google.com/file/d/${estadoSistema?.archivoId || '1mxonSdL8ydZQM0aOZn-0tTJZ3q4UgFK_'}/view`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-orange-400 underline font-bold hover:text-orange-300"
-              title="Ver archivo en Drive"
-            >
-              ejemplo.json
-            </a>
+            {estadoSistema?.archivoId ? (
+              <a
+                href={`https://drive.google.com/file/d/${estadoSistema.archivoId}/view`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-orange-400 underline font-bold hover:text-orange-300"
+                title={`Ver archivo en Drive (${estadoSistema.archivoId})`}
+              >
+                {estadoSistema.archivoId}
+              </a>
+            ) : (
+              <span className="text-orange-400 font-bold">
+                {cargandoEstado ? 'Cargando...' : 'No configurado'}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -266,27 +387,27 @@ export default function ContenidoIaPanel() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Columna Izquierda: Formulario de Petición del Profesor */}
+        {/* Columna Izquierda: Formulario y Recuperación del Original */}
         <div className="lg:col-span-5 space-y-6">
           <form onSubmit={handleGenerarPropuesta} className="border border-primary/30 bg-surface-container-low/40 p-6 backdrop-blur-md space-y-5">
             <div className="flex items-center justify-between border-b border-primary/20 pb-3">
               <h3 className="font-mono-label text-primary text-[13px] font-bold uppercase tracking-wider flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px]">edit_note</span>
-                Petición del Profesor
+                Tema y Configuración IA
               </h3>
               <span className="font-mono-label text-on-surface-variant text-[10px] uppercase">PASO 1</span>
             </div>
 
-            {/* Selector de Tema */}
+            {/* Selector de Tema (Campo Principal) */}
             <div>
-              <label className="block font-mono-label text-[11px] uppercase text-on-surface-variant mb-1 font-bold">
-                1. Tema del Entorno VR
+              <label className="block font-mono-label text-[11px] uppercase text-primary mb-1 font-bold">
+                1. Tema Principal del Escenario *
               </label>
               <input
                 type="text"
                 value={tema}
                 onChange={(e) => setTema(e.target.value)}
-                placeholder="Ej: Laboratorio de Química, Estación Espacial..."
+                placeholder="Ej: Sistema Hospitalario y Urgencias, Red Eléctrica..."
                 className="w-full bg-surface-container-highest/80 border border-primary/40 px-3 py-2 text-[13px] font-mono-label text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary focus:shadow-[0_0_10px_rgba(0,220,230,0.3)] transition-all"
               />
 
@@ -305,16 +426,16 @@ export default function ContenidoIaPanel() {
               </div>
             </div>
 
-            {/* Petición / Prompt */}
+            {/* Petición / Instrucciones adicionales (Opcional) */}
             <div>
               <label className="block font-mono-label text-[11px] uppercase text-on-surface-variant mb-1 font-bold">
-                2. Instrucción o Petición para Gemini
+                2. Instrucciones adicionales para Gemini (Opcional)
               </label>
               <textarea
-                rows={4}
+                rows={3}
                 value={peticion}
                 onChange={(e) => setPeticion(e.target.value)}
-                placeholder="Ej: Activar los elementos de medición y seguridad personal, y desactivar reactivos inflamables o equipos pesados para esta práctica inicial."
+                placeholder="Ej: Enfocar los puntos críticos en saturación de quirófanos y tiempos de respuesta de ambulancias."
                 className="w-full bg-surface-container-highest/80 border border-primary/40 px-3 py-2 text-[13px] font-mono-label text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary focus:shadow-[0_0_10px_rgba(0,220,230,0.3)] transition-all resize-none"
               ></textarea>
             </div>
@@ -322,7 +443,7 @@ export default function ContenidoIaPanel() {
             {/* Elementos específicos opcionales */}
             <div>
               <label className="block font-mono-label text-[11px] uppercase text-on-surface-variant mb-1 font-bold">
-                3. Elementos específicos a incluir (Opcional)
+                3. Conceptos o elementos clave a incluir (Opcional)
               </label>
               <div className="flex gap-2">
                 <input
@@ -335,7 +456,7 @@ export default function ContenidoIaPanel() {
                       agregarElemento();
                     }
                   }}
-                  placeholder="Ej: microscopio, bata_proteccion"
+                  placeholder="Ej: UCI Pediátrica, Subestación Norte"
                   className="flex-1 bg-surface-container-highest/80 border border-primary/40 px-3 py-1.5 text-[12px] font-mono-label text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary"
                 />
                 <button
@@ -377,7 +498,7 @@ export default function ContenidoIaPanel() {
               {generando ? (
                 <>
                   <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
-                  <span>CONSULTANDO_GEMINI_FLASH...</span>
+                  <span>GENERANDO_43_BOTONES...</span>
                 </>
               ) : (
                 <>
@@ -388,12 +509,49 @@ export default function ContenidoIaPanel() {
             </button>
           </form>
 
+          {/* Tarjeta de Recuperación del JSON Original */}
+          <div className="border border-secondary/40 bg-surface-container-low/40 p-5 backdrop-blur-md space-y-3">
+            <div className="flex items-center justify-between border-b border-secondary/20 pb-2">
+              <h3 className="font-mono-label text-secondary text-[12px] font-bold uppercase tracking-wider flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px]">settings_backup_restore</span>
+                Recuperar JSON Original
+              </h3>
+              <span className="font-mono-label text-on-surface-variant text-[10px] uppercase">43 BOTONES</span>
+            </div>
+
+            <p className="font-mono-label text-on-surface-variant text-[11px]">
+              Carga el JSON original en el editor para revisarlo, o restáuralo directamente en Google Drive dejando respaldo en el historial.
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleCargarOriginal}
+                disabled={cargandoOriginal || restaurando}
+                className="w-full py-2.5 px-4 border border-primary/50 bg-primary/10 text-primary hover:bg-primary/20 font-mono-label font-bold uppercase tracking-wider text-[11px] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-[17px]">download</span>
+                <span>{cargandoOriginal ? 'Cargando...' : 'Cargar JSON Original en Editor'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalRestaurar(true)}
+                disabled={restaurando || guardando}
+                className="w-full py-2.5 px-4 border border-secondary/60 bg-secondary/15 text-secondary hover:bg-secondary/25 font-mono-label font-bold uppercase tracking-wider text-[11px] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-[17px]">restore</span>
+                <span>{restaurando ? 'Restaurando en Drive...' : 'Restaurar JSON Original en Drive'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Botón para ver Historial de Auditoría */}
           <div className="border border-orange-400/30 bg-surface-container-low/40 p-4">
             <button
               type="button"
               onClick={() => setMostrarHistorial(!mostrarHistorial)}
-              className="w-full flex items-center justify-between text-orange-400 font-mono-label text-[12px] uppercase font-bold hover:text-orange-300 transition-colors"
+              className="w-full flex items-center justify-between text-orange-400 font-mono-label text-[12px] uppercase font-bold hover:text-orange-300 transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px]">history</span>
@@ -406,18 +564,18 @@ export default function ContenidoIaPanel() {
           </div>
         </div>
 
-        {/* Columna Derecha: Vista Previa y Decisión del Profesor */}
+        {/* Columna Derecha: Vista Previa y Edición Segura de los 43 Botones */}
         <div className="lg:col-span-7 space-y-6">
           <div className="border border-primary/30 bg-surface-container-low/40 p-6 backdrop-blur-md space-y-5">
             <div className="flex items-center justify-between border-b border-primary/20 pb-3">
               <h3 className="font-mono-label text-primary text-[13px] font-bold uppercase tracking-wider flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px]">tune</span>
-                Propuesta Recibida (Validación y Ajuste)
+                Propuesta Recibida ({botones.length} Botones)
               </h3>
               <span className="font-mono-label text-on-surface-variant text-[10px] uppercase">PASO 2</span>
             </div>
 
-            {!propuesta ? (
+            {!propuesta || botones.length === 0 ? (
               <div className="py-16 text-center border border-dashed border-primary/20 bg-surface-container-highest/20 p-8">
                 <span className="material-symbols-outlined text-primary/40 text-[48px] mb-2 block">
                   psychology_alt
@@ -425,72 +583,115 @@ export default function ContenidoIaPanel() {
                 <p className="font-mono-label text-primary/70 text-[13px] uppercase font-bold">
                   Sin propuesta generada
                 </p>
-                <p className="font-mono-label text-on-surface-variant text-[11px] max-w-sm mx-auto mt-1">
-                  Escribe un tema o instrucción a la izquierda y pulsa "Generar Propuesta con IA". Podrás revisar cada elemento antes de guardarlo en Drive.
+                <p className="font-mono-label text-on-surface-variant text-[11px] max-w-md mx-auto mt-1">
+                  Escribe un tema a la izquierda y pulsa "Generar Propuesta con IA", o carga el JSON original para inspeccionar y editar los 43 botones antes de guardar en Drive.
                 </p>
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <div className="bg-primary/5 border border-primary/30 p-3 font-mono-label text-[11px] text-primary flex items-center gap-2">
                   <span className="material-symbols-outlined text-[18px]">info</span>
                   <span>
-                    Haz clic en los botones para alternar entre <strong>1 (Activo)</strong> y <strong>0 (Inactivo)</strong> según requieras.
+                    Edita el <strong>texto</strong>, cambia la <strong>categoría</strong> o alterna la ponderación entre <strong>1.0</strong> y <strong>0</strong> en cualquiera de los 43 botones.
                   </span>
                 </div>
 
-                {/* Lista Interactiva de Claves y Valores */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
-                  {Object.entries(propuesta).map(([clave, valor]) => (
-                    <div
-                      key={clave}
-                      className={`flex items-center justify-between p-3 border transition-all ${
-                        valor === 1
-                          ? 'border-secondary/60 bg-secondary/10 shadow-[inset_2px_0_0_#a6e22e]'
-                          : 'border-on-surface-variant/30 bg-surface-container-highest/40'
-                      }`}
-                    >
-                      <div className="truncate mr-2">
-                        <span className="font-mono-label text-[12px] font-bold text-on-surface block truncate">
-                          {clave}
-                        </span>
-                        <span className="font-mono-label text-[10px] text-on-surface-variant">
-                          {valor === 1 ? '1 // VERDADERO' : '0 // FALSO'}
-                        </span>
-                      </div>
+                {/* Filtros rápidos por Categoría */}
+                <div className="flex flex-wrap gap-1.5">
+                  {FILTROS_CATEGORIA.map((f) => {
+                    const count = f.id === 'TODOS'
+                      ? botones.length
+                      : f.id === 'SIN_CATEGORIA'
+                        ? botones.filter((b) => !b.categoria).length
+                        : botones.filter((b) => b.categoria === f.id).length;
+                    const activo = filtroCategoria === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setFiltroCategoria(f.id)}
+                        className={`font-mono-label text-[10px] uppercase px-2.5 py-1 border transition-all cursor-pointer ${
+                          activo
+                            ? 'border-primary bg-primary text-black font-bold'
+                            : 'border-primary/30 bg-surface-container-highest/40 text-on-surface-variant hover:text-primary hover:border-primary/60'
+                        }`}
+                      >
+                        {f.label} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleValor(clave)}
-                          className={`px-3 py-1 font-mono-label text-[11px] font-bold uppercase transition-all cursor-pointer border ${
-                            valor === 1
-                              ? 'bg-secondary text-black border-secondary hover:bg-secondary/90'
-                              : 'border-on-surface-variant/40 text-on-surface-variant hover:text-white hover:border-white'
-                          }`}
-                        >
-                          {valor === 1 ? '1 (ON)' : '0 (OFF)'}
-                        </button>
+                {/* Lista Interactiva de Botones */}
+                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                  {botonesFiltrados.map(({ boton, indice }) => {
+                    const esActivo = boton.ponderacion === 1;
+                    const lineas = typeof boton.texto === 'string' ? boton.texto.split('\n').length : 1;
+                    const rows = boton.texto?.includes('\n') ? Math.min(8, Math.max(3, lineas)) : 2;
 
-                        <button
-                          type="button"
-                          onClick={() => eliminarDePropuesta(clave)}
-                          className="text-on-surface-variant/50 hover:text-error transition-colors p-1"
-                          title="Eliminar elemento"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">delete</span>
-                        </button>
+                    return (
+                      <div
+                        key={indice}
+                        className={`p-3.5 border transition-all space-y-2.5 ${
+                          esActivo
+                            ? 'border-secondary/60 bg-secondary/10 shadow-[inset_3px_0_0_#a6e22e]'
+                            : 'border-on-surface-variant/30 bg-surface-container-highest/40'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-mono-label text-[10px]">
+                            <span className="px-2 py-0.5 bg-primary/15 border border-primary/40 text-primary font-bold">
+                              #{indice + 1}
+                            </span>
+                            <select
+                              value={boton.categoria || ''}
+                              onChange={(e) => actualizarCategoriaBoton(indice, e.target.value)}
+                              aria-label={`Categoría del botón ${indice + 1}`}
+                              className={`px-2 py-0.5 font-mono-label text-[10px] font-bold border bg-surface-container-highest/80 focus:outline-none focus:border-primary cursor-pointer ${
+                                boton.categoria
+                                  ? 'border-orange-400/40 text-orange-300'
+                                  : 'border-on-surface-variant/30 text-on-surface-variant'
+                              }`}
+                            >
+                              <option value="">Sin categoría</option>
+                              <option value="Puntos Criticos de Congestion">Puntos Criticos de Congestion</option>
+                              <option value="Flujo entre Zonas">Flujo entre Zonas</option>
+                              <option value="Horas Pico">Horas Pico</option>
+                              <option value="Capacidad del sistema">Capacidad del sistema</option>
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => togglePonderacionBoton(indice)}
+                            className={`px-3 py-1 font-mono-label text-[10px] font-bold uppercase transition-all cursor-pointer border ${
+                              esActivo
+                                ? 'bg-secondary text-black border-secondary hover:bg-secondary/90'
+                                : 'border-on-surface-variant/40 text-on-surface-variant hover:text-white hover:border-white'
+                            }`}
+                          >
+                            ponderacion: {esActivo ? '1.0' : '0'}
+                          </button>
+                        </div>
+
+                        <textarea
+                          rows={rows}
+                          value={boton.texto}
+                          onChange={(e) => actualizarTextoBoton(indice, e.target.value)}
+                          className="w-full bg-black/50 border border-primary/25 px-3 py-2 text-[12px] font-mono-label text-on-surface focus:outline-none focus:border-primary resize-y"
+                        />
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Vista previa JSON crudo */}
                 <div>
                   <span className="block font-mono-label text-[10px] text-on-surface-variant uppercase font-bold mb-1">
-                    // FORMATO_JSON_PARA_DRIVE (ejemplo.json)
+                    // FORMATO_JSON_PARA_DRIVE (ejemplo.json — {botones.length} botones)
                   </span>
-                  <pre className="bg-black/80 border border-primary/30 p-3 font-mono-label text-[11px] text-primary overflow-x-auto max-h-48 selection:bg-primary selection:text-black">
-                    {JSON.stringify(propuesta, null, 2)}
+                  <pre className="bg-black/80 border border-primary/30 p-3 font-mono-label text-[11px] text-primary overflow-x-auto max-h-56 selection:bg-primary selection:text-black">
+                    {formatearJsonVista(propuesta)}
                   </pre>
                 </div>
 
@@ -499,7 +700,7 @@ export default function ContenidoIaPanel() {
                   <button
                     type="button"
                     onClick={() => setModalConfirmar(true)}
-                    disabled={guardando}
+                    disabled={guardando || restaurando}
                     className="flex-1 py-3 bg-secondary text-black font-mono-label font-bold uppercase tracking-wider text-[12px] hover:shadow-[0_0_20px_rgba(166,226,46,0.6)] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
@@ -509,7 +710,7 @@ export default function ContenidoIaPanel() {
                   <button
                     type="button"
                     onClick={handleDescartar}
-                    disabled={guardando}
+                    disabled={guardando || restaurando}
                     className="py-3 px-6 border border-error/50 text-error hover:bg-error/10 font-mono-label font-bold uppercase tracking-wider text-[12px] transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
                     <span className="material-symbols-outlined text-[18px]">close</span>
@@ -555,7 +756,8 @@ export default function ContenidoIaPanel() {
                       <span className="text-orange-400 font-bold">#{log.id}</span>
                       <span className="text-on-surface font-bold">Tema: {log.tema}</span>
                       <span className="text-on-surface-variant text-[10px]">
-                        por {log.usuario?.username || 'Profesor'} ({log.usuario?.email})
+                        por {log.usuario?.nombre || 'Profesor'}
+                        {log.usuario?.correo ? ` (${log.usuario.correo})` : ''}
                       </span>
                     </div>
                     <div className="text-on-surface-variant text-[10px] mt-0.5 truncate max-w-xl">
@@ -572,15 +774,22 @@ export default function ContenidoIaPanel() {
                       onClick={() => {
                         try {
                           const parsed = JSON.parse(log.contenidoNuevo);
+                          if (!parsed || !Array.isArray(parsed.botones)) {
+                            setError('Esta versión histórica usa un formato anterior sin el arreglo "botones" de 43 elementos.');
+                            return;
+                          }
+                          setError(null);
                           setPropuesta(parsed);
+                          setFiltroCategoria('TODOS');
                           setTema(log.tema || '');
                           setPeticion(log.peticion || '');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         } catch (e) {
                           console.error('Error al cargar versión:', e);
+                          setError('No se pudo leer el contenido JSON de esta versión histórica.');
                         }
                       }}
-                      className="px-2.5 py-1 border border-orange-400/40 text-orange-400 hover:bg-orange-400/10 uppercase text-[10px] font-bold"
+                      className="px-2.5 py-1 border border-orange-400/40 text-orange-400 hover:bg-orange-400/10 uppercase text-[10px] font-bold cursor-pointer"
                     >
                       Cargar en Editor
                     </button>
@@ -592,7 +801,7 @@ export default function ContenidoIaPanel() {
         </div>
       )}
 
-      {/* Modal de Confirmación para Guardar en Drive */}
+      {/* Modal de Confirmación para Guardar Propuesta en Drive */}
       {modalConfirmar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="max-w-lg w-full bg-surface-container border border-secondary p-6 shadow-[0_0_30px_rgba(166,226,46,0.3)] space-y-4">
@@ -602,18 +811,18 @@ export default function ContenidoIaPanel() {
             </div>
 
             <p className="font-mono-label text-on-surface-variant text-[12px]">
-              Se actualizará el archivo <strong>ejemplo.json</strong> en Google Drive con la propuesta seleccionada. Se creará automáticamente un registro de respaldo con la versión previa.
+              Se actualizará el archivo <strong>ejemplo.json</strong> en Google Drive con los <strong>{botones.length} botones</strong> configurados. Se creará automáticamente un registro de respaldo con la versión previa.
             </p>
 
-            <div className="bg-black/60 p-3 border border-secondary/30 font-mono-label text-[11px] text-secondary max-h-36 overflow-y-auto">
-              {JSON.stringify(propuesta, null, 2)}
-            </div>
+            <pre className="bg-black/60 p-3 border border-secondary/30 font-mono-label text-[11px] text-secondary max-h-48 overflow-y-auto">
+              {formatearJsonVista(propuesta)}
+            </pre>
 
             <div className="flex justify-end gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setModalConfirmar(false)}
-                className="px-4 py-2 border border-on-surface-variant/40 font-mono-label text-[11px] text-on-surface-variant hover:text-white uppercase"
+                className="px-4 py-2 border border-on-surface-variant/40 font-mono-label text-[11px] text-on-surface-variant hover:text-white uppercase cursor-pointer"
               >
                 Cancelar
               </button>
@@ -630,6 +839,47 @@ export default function ContenidoIaPanel() {
                   </>
                 ) : (
                   'Confirmar y Actualizar Drive'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación para Restaurar JSON Original en Drive */}
+      {modalRestaurar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="max-w-lg w-full bg-surface-container border border-secondary p-6 shadow-[0_0_30px_rgba(166,226,46,0.3)] space-y-4">
+            <div className="flex items-center gap-2 text-secondary font-mono-label text-[13px] font-bold uppercase">
+              <span className="material-symbols-outlined text-[20px]">settings_backup_restore</span>
+              Confirmar Restauración del JSON Original
+            </div>
+
+            <p className="font-mono-label text-on-surface-variant text-[12px]">
+              Esta acción sobrescribirá el archivo <strong>ejemplo.json</strong> en Google Drive con el <strong>JSON original de 43 botones</strong>. Se guardará un respaldo previo en el historial de auditoría.
+            </p>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setModalRestaurar(false)}
+                className="px-4 py-2 border border-on-surface-variant/40 font-mono-label text-[11px] text-on-surface-variant hover:text-white uppercase cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleRestaurarOriginalEnDrive}
+                disabled={restaurando}
+                className="px-5 py-2 bg-secondary text-black font-mono-label text-[11px] font-bold uppercase hover:bg-secondary/90 flex items-center gap-2 cursor-pointer"
+              >
+                {restaurando ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
+                    Restaurando...
+                  </>
+                ) : (
+                  'Confirmar y Restaurar en Drive'
                 )}
               </button>
             </div>
