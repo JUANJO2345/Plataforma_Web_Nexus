@@ -4,8 +4,10 @@
   /* Paleta de colores Cyberpunk */
   --color-background: #131313;
   --color-surface: #131313;
-  --color-surface-container: #201f1f;
+  --color-surface-container-lowest: #0e0e0e;
   --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a29;
   --color-surface-container-highest: #353534;
   --color-primary: #e3fdff;
   --color-primary-container: #00f3ff;
@@ -17,7 +19,8 @@
   --color-outline-variant: #3a494b;
   --color-on-primary: #00373a;
   --color-on-secondary-fixed-variant: #810081;
-  --color-on-error: #690005;
+  --color-error: #ff5449;
+  --color-on-error: #ffb4ab;
   --color-error-container: #93000a;
 
   /* Tipografías */

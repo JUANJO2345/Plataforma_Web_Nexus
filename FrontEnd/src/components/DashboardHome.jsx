@@ -36,7 +36,10 @@ export default function DashboardHome() {
   }, [authFetch, isAdmin]);
 
   useEffect(() => {
-    cargarDatos();
+    const loadInitialData = async () => {
+      await cargarDatos();
+    };
+    loadInitialData();
   }, [cargarDatos]);
 
   if (loading && !metricas) {

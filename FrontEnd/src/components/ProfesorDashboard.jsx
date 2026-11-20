@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthStore';
-import { puntajeTotalPartida, agruparResultadosPorEtapa, formatearFechaCorta } from '../utils/partidas';
+import {
+  puntajeTotalPartida,
+  agruparResultadosPorEtapa,
+  formatearFechaCorta,
+  calcularEstadisticasGrupo
+} from '../utils/partidas';
 
 const COLORES_ETAPA = [
   { color: 'text-primary', border: 'border-primary/30', bg: 'bg-primary/10' },
@@ -14,15 +19,16 @@ export default function ProfesorDashboard() {
   const { user, authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [partidas, setPartidas] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(user?.id));
   const [error, setError] = useState(null);
   const [grupoSeleccionado, setGrupoSeleccionado] = useState(null);
+  const missingUserId = Boolean(user && !user.id);
   
   // Búsqueda e inspección de estudiante
   const [busqueda, setBusqueda] = useState('');
   const [estudianteInspeccionadoId, setEstudianteInspeccionadoId] = useState(null);
   const [partidaSeleccionadaId, setPartidaSeleccionadaId] = useState(null);
-  const [observacionTexto, setObservacionTexto] = useState('');
+  const [observacionBorrador, setObservacionBorrador] = useState(null);
   const [guardandoObservacion, setGuardandoObservacion] = useState(false);
   const [mensajeObservacion, setMensajeObservacion] = useState(null);
 
@@ -33,9 +39,11 @@ export default function ProfesorDashboard() {
   const [agregandoId, setAgregandoId] = useState(null);
 
   useEffect(() => {
+    if (!user?.id) return undefined;
+
+    let cancelled = false;
     const fetchData = async () => {
       try {
-        setLoading(true);
         const [resGrupos, resPartidas, resUsuarios] = await Promise.all([
           authFetch(`/api/grupos?profesorId=${user.id}`),
           authFetch('/api/partidas'),
@@ -46,9 +54,13 @@ export default function ProfesorDashboard() {
           throw new Error('No se pudo establecer enlace con los datos del profesor.');
         }
 
-        const dataGrupos = await resGrupos.json();
-        const dataPartidas = await resPartidas.json();
-        const dataUsuarios = await resUsuarios.json();
+        const [dataGrupos, dataPartidas, dataUsuarios] = await Promise.all([
+          resGrupos.json(),
+          resPartidas.json(),
+          resUsuarios.json()
+        ]);
+
+        if (cancelled) return;
 
         const listaGrupos = Array.isArray(dataGrupos) ? dataGrupos : [];
         const listaPartidas = Array.isArray(dataPartidas) ? dataPartidas : [];
@@ -63,18 +75,17 @@ export default function ProfesorDashboard() {
         }
         setError(null);
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    if (user?.id) {
-      fetchData();
-    } else if (user) {
-      setLoading(false);
-      setError('Identificador de usuario ausente en la sesión actual. Por favor inicia sesión nuevamente.');
-    }
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, authFetch]);
 
   // Cambiar grupo resetea selección e inspección
@@ -103,6 +114,12 @@ export default function ProfesorDashboard() {
       )));
       setGrupoSeleccionado(data.grupo);
       setBusquedaAgregar('');
+
+      const resPartidas = await authFetch('/api/partidas');
+      if (resPartidas.ok) {
+        const dataPartidas = await resPartidas.json();
+        setPartidas(Array.isArray(dataPartidas) ? dataPartidas : []);
+      }
     } catch (err) {
       alert(`[!] STUDENT_ENROLLMENT_ERROR: ${err.message}`);
     } finally {
@@ -112,26 +129,12 @@ export default function ProfesorDashboard() {
 
   const estudiantesGrupo = grupoSeleccionado?.estudiantes || [];
 
-  // Mapear cada estudiante con sus partidas y puntaje
-  const datosEstudiantes = estudiantesGrupo.map((estudiante) => {
-    const partidasEst = partidas.filter(
-      (p) => p.usuarioId === estudiante.id || p.username?.toLowerCase() === estudiante.correo?.toLowerCase()
-    );
-    const ultimaPartida = partidasEst.length > 0 ? partidasEst[partidasEst.length - 1] : null;
-    const totalScore = puntajeTotalPartida(ultimaPartida);
-
-    return {
-      estudiante,
-      partidas: partidasEst,
-      totalScore,
-      ultimaPartida
-    };
-  });
-
-  // Métricas del grupo actual
-  const totalPartidasGrupo = datosEstudiantes.reduce((acc, curr) => acc + curr.partidas.length, 0);
-  const puntajeTotalGrupo = datosEstudiantes.reduce((acc, curr) => acc + curr.totalScore, 0);
-  const promedioPuntaje = datosEstudiantes.length > 0 ? Math.round(puntajeTotalGrupo / datosEstudiantes.length) : 0;
+  // Métricas unificadas del grupo actual (mejor puntaje por estudiante)
+  const {
+    datosEstudiantes,
+    totalPartidasGrupo,
+    promedioGrupo: promedioPuntaje,
+  } = calcularEstadisticasGrupo(estudiantesGrupo, partidas);
 
   // Filtrado por buscador
   const terminoBusqueda = busqueda.trim().toLowerCase();
@@ -168,12 +171,12 @@ export default function ProfesorDashboard() {
   const etapasPartidaInspeccionada = partidaInspeccionada ? agruparResultadosPorEtapa(partidaInspeccionada) : [];
   const totalGeneralInspeccionado = etapasPartidaInspeccionada.reduce((tot, et) => tot + et.puntajeTotal, 0);
 
-  useEffect(() => {
-    if (partidaInspeccionada) {
-      setObservacionTexto(partidaInspeccionada.observacion || '');
-      setMensajeObservacion(null);
-    }
-  }, [partidaInspeccionada?.id, partidaInspeccionada?.observacion]);
+  const observacionTexto = (observacionBorrador && observacionBorrador.partidaId === partidaInspeccionada?.id)
+    ? observacionBorrador.texto
+    : (partidaInspeccionada?.observacion || '');
+  const mensajeObservacionActivo = (mensajeObservacion && mensajeObservacion.partidaId === partidaInspeccionada?.id)
+    ? mensajeObservacion
+    : null;
 
   const guardarObservacionPartida = async (partidaId) => {
     try {
@@ -192,12 +195,15 @@ export default function ProfesorDashboard() {
         )
       );
 
+      setObservacionBorrador(null);
       setMensajeObservacion({
+        partidaId,
         tipo: 'success',
         texto: `Observación registrada con éxito para la partida #${String(partidaId).padStart(4, '0')}.`
       });
     } catch (err) {
       setMensajeObservacion({
+        partidaId,
         tipo: 'error',
         texto: err.message
       });
@@ -205,6 +211,14 @@ export default function ProfesorDashboard() {
       setGuardandoObservacion(false);
     }
   };
+
+  if (missingUserId) {
+    return (
+      <div className="p-4 border border-error/40 bg-error-container/10 font-mono-label text-[12px] text-on-error flex items-center gap-2">
+        <span className="material-symbols-outlined">warning</span> [!] SYSTEM_ERROR: Identificador de usuario ausente en la sesión actual. Por favor inicia sesión nuevamente.
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -613,23 +627,23 @@ export default function ProfesorDashboard() {
                     <textarea
                       rows={3}
                       value={observacionTexto}
-                      onChange={(e) => setObservacionTexto(e.target.value)}
+                      onChange={(e) => setObservacionBorrador({ partidaId: partidaInspeccionada.id, texto: e.target.value })}
                       placeholder="Escribe una observación, sugerencia o feedback cualitativo específico para esta partida del estudiante..."
                       className="w-full bg-surface-container-high border border-orange-400/40 p-3 font-mono text-[12px] text-on-surface focus:outline-none focus:border-orange-400 focus:shadow-[0_0_12px_rgba(251,146,60,0.2)] transition-all placeholder:text-on-surface-variant/40"
                     />
 
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                       <div>
-                        {mensajeObservacion && (
+                        {mensajeObservacionActivo && (
                           <div className={`font-mono-label text-[11px] flex items-center gap-1.5 p-1 px-2 border ${
-                            mensajeObservacion.tipo === 'success'
+                            mensajeObservacionActivo.tipo === 'success'
                               ? 'border-secondary/40 bg-secondary/10 text-secondary'
                               : 'border-error/40 bg-error/10 text-error'
                           }`}>
                             <span className="material-symbols-outlined text-[15px]">
-                              {mensajeObservacion.tipo === 'success' ? 'check_circle' : 'warning'}
+                              {mensajeObservacionActivo.tipo === 'success' ? 'check_circle' : 'warning'}
                             </span>
-                            <span>{mensajeObservacion.texto}</span>
+                            <span>{mensajeObservacionActivo.texto}</span>
                           </div>
                         )}
                       </div>
@@ -638,7 +652,7 @@ export default function ProfesorDashboard() {
                         {observacionTexto && (
                           <button
                             type="button"
-                            onClick={() => setObservacionTexto('')}
+                            onClick={() => setObservacionBorrador({ partidaId: partidaInspeccionada.id, texto: '' })}
                             className="px-3 py-1.5 font-mono-label text-[11px] uppercase border border-on-surface-variant/30 text-on-surface-variant hover:text-orange-400 transition-all cursor-pointer"
                           >
                             Limpiar
@@ -797,9 +811,8 @@ export default function ProfesorDashboard() {
           </div>
         ) : (
           <div className="space-y-4">
-            {estudiantesFiltrados.map(({ estudiante, partidas: pList, totalScore, ultimaPartida }) => {
+            {estudiantesFiltrados.map(({ estudiante, partidas: pList, mejorPuntaje, ultimaPartida }) => {
               const estaInspeccionado = estudianteInspeccionadoId === estudiante.id;
-              const puntajeMaximo = pList.length > 0 ? Math.max(...pList.map((p) => puntajeTotalPartida(p))) : 0;
 
               return (
                 <div
@@ -835,7 +848,7 @@ export default function ProfesorDashboard() {
                       <div className="text-right px-3 py-1 bg-surface-container/60 border border-secondary/30">
                         <div className="text-[9px] text-on-surface-variant uppercase">Mejor Puntaje</div>
                         <div className="font-bold text-secondary text-[15px]">
-                          {puntajeMaximo} pts
+                          {mejorPuntaje} pts
                         </div>
                       </div>
 

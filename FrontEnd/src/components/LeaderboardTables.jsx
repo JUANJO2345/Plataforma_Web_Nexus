@@ -16,8 +16,55 @@ function MedallaPosicion({ posicion }) {
   return <span className="text-on-surface-variant/80 font-mono">#{posicion}</span>;
 }
 
-function TablaGeneral({ etapas, partidas, highlightUsername }) {
-  const filas = partidas.map((partida) => {
+function obtenerClaveEstudiante(partida) {
+  if (partida?.usuarioId != null) return `uid:${partida.usuarioId}`;
+  if (partida?.username) return `user:${partida.username.toLowerCase()}`;
+  if (partida?.usuario?.correo) return `user:${partida.usuario.correo.toLowerCase()}`;
+  if (partida?.nombre) return `name:${partida.nombre.toLowerCase()}`;
+  return `partida:${partida?.id}`;
+}
+
+function esPartidaDeUsuario(partida, highlightUserId, highlightUsername) {
+  if (highlightUserId != null && partida?.usuarioId != null) {
+    if (Number(partida.usuarioId) === Number(highlightUserId)) return true;
+  }
+  if (highlightUsername) {
+    const target = highlightUsername.toLowerCase();
+    if (partida?.username?.toLowerCase() === target) return true;
+    if (partida?.usuario?.correo?.toLowerCase() === target) return true;
+  }
+  return false;
+}
+
+function obtenerNombreMostrar(partida) {
+  return partida?.nombre || partida?.usuario?.nombre || partida?.username?.split('@')[0] || 'Operador';
+}
+
+function obtenerCorreoMostrar(partida) {
+  return partida?.username || partida?.usuario?.correo || null;
+}
+
+function filtrarMejorPorAlumno(filasOrdenadas) {
+  const vistos = new Set();
+  const resultado = [];
+  for (const fila of filasOrdenadas) {
+    const clave = obtenerClaveEstudiante(fila.partida);
+    if (!vistos.has(clave)) {
+      vistos.add(clave);
+      resultado.push(fila);
+    }
+  }
+  return resultado;
+}
+
+function TablaGeneral({
+  etapas,
+  partidas,
+  highlightUserId = null,
+  highlightUsername,
+  soloMejorPorAlumno = true
+}) {
+  const filasOrdenadas = partidas.map((partida) => {
     const etapasPuntajes = etapas.map((etapa) => {
       const resultados = etapa.niveles.map((nivel) => (
         partida.resultados?.find((resultado) => resultado.nivelId === nivel.id) || null
@@ -34,7 +81,9 @@ function TablaGeneral({ etapas, partidas, highlightUsername }) {
       totalPuntaje,
       totalTiempo
     };
-  }).sort((a, b) => b.totalPuntaje - a.totalPuntaje);
+  }).sort((a, b) => b.totalPuntaje - a.totalPuntaje || a.totalTiempo - b.totalTiempo);
+
+  const filas = soloMejorPorAlumno ? filtrarMejorPorAlumno(filasOrdenadas) : filasOrdenadas;
 
   return (
     <section className="border border-primary/40 bg-surface-container-low/50 p-5 backdrop-blur-md">
@@ -81,8 +130,9 @@ function TablaGeneral({ etapas, partidas, highlightUsername }) {
               </tr>
             ) : (
               filas.map(({ partida, etapasPuntajes, totalPuntaje, totalTiempo }, index) => {
-                const esUsuario = highlightUsername && partida.username?.toLowerCase() === highlightUsername.toLowerCase();
-                const nombreMostrar = partida.usuario?.nombre || partida.username?.split('@')[0] || 'Operador';
+                const esUsuario = esPartidaDeUsuario(partida, highlightUserId, highlightUsername);
+                const nombreMostrar = obtenerNombreMostrar(partida);
+                const correoMostrar = obtenerCorreoMostrar(partida);
                 return (
                   <tr
                     key={partida.id}
@@ -104,9 +154,11 @@ function TablaGeneral({ etapas, partidas, highlightUsername }) {
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-on-surface-variant/60 font-normal">
-                        {partida.username}
-                      </div>
+                      {correoMostrar && (
+                        <div className="text-[10px] text-on-surface-variant/60 font-normal">
+                          {correoMostrar}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 text-orange-400 font-mono font-bold">
                       #{String(partida.id).padStart(4, '0')}
@@ -138,8 +190,15 @@ function TablaGeneral({ etapas, partidas, highlightUsername }) {
   );
 }
 
-function TablaEtapa({ etapa, partidas, highlightUsername, color }) {
-  const filas = partidas.map((partida) => {
+function TablaEtapa({
+  etapa,
+  partidas,
+  highlightUserId = null,
+  highlightUsername,
+  color,
+  soloMejorPorAlumno = true
+}) {
+  const filasOrdenadas = partidas.map((partida) => {
     const resultados = etapa.niveles.map((nivel) => (
       partida.resultados?.find((resultado) => resultado.nivelId === nivel.id) || null
     ));
@@ -152,6 +211,8 @@ function TablaEtapa({ etapa, partidas, highlightUsername, color }) {
       tiempoTotal
     };
   }).filter((fila) => fila.resultados.some(Boolean)).sort((a, b) => b.total - a.total || a.tiempoTotal - b.tiempoTotal);
+
+  const filas = soloMejorPorAlumno ? filtrarMejorPorAlumno(filasOrdenadas) : filasOrdenadas;
 
   return (
     <section className={`border ${color.borde} bg-surface-container-low/40 p-5 backdrop-blur-md`}>
@@ -199,8 +260,9 @@ function TablaEtapa({ etapa, partidas, highlightUsername, color }) {
               </tr>
             ) : (
               filas.map(({ partida, resultados, total, tiempoTotal }, index) => {
-                const esUsuario = highlightUsername && partida.username?.toLowerCase() === highlightUsername.toLowerCase();
-                const nombreMostrar = partida.usuario?.nombre || partida.username?.split('@')[0] || 'Operador';
+                const esUsuario = esPartidaDeUsuario(partida, highlightUserId, highlightUsername);
+                const nombreMostrar = obtenerNombreMostrar(partida);
+                const correoMostrar = obtenerCorreoMostrar(partida);
                 return (
                   <tr
                     key={partida.id}
@@ -222,9 +284,11 @@ function TablaEtapa({ etapa, partidas, highlightUsername, color }) {
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-on-surface-variant/60 font-normal">
-                        {partida.username}
-                      </div>
+                      {correoMostrar && (
+                        <div className="text-[10px] text-on-surface-variant/60 font-normal">
+                          {correoMostrar}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-orange-400 font-mono font-bold">
                       #{String(partida.id).padStart(4, '0')}
@@ -261,7 +325,8 @@ function TablaEtapa({ etapa, partidas, highlightUsername, color }) {
 
 export default function LeaderboardTables({
   partidas,
-  highlightUsername,
+  highlightUserId = null,
+  highlightUsername = null,
   grupoId = null,
   mostrarFiltro = true,
   etapaInicial = 'general'
@@ -269,21 +334,24 @@ export default function LeaderboardTables({
   const { authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [etapas, setEtapas] = useState([]);
-  const [grupoIdSeleccionado, setGrupoIdSeleccionado] = useState(grupoId || 'global');
+  const [grupoOverride, setGrupoOverride] = useState(null);
+  const grupoActivo = (grupoOverride && grupoOverride.base === grupoId)
+    ? grupoOverride.value
+    : (grupoId || 'global');
+  const [soloMejorPorAlumno, setSoloMejorPorAlumno] = useState(true);
+  const [rankingPartidas, setRankingPartidas] = useState([]);
   const [pestañaEtapa, setPestañaEtapa] = useState(etapaInicial); // 'general', id/clave de etapa, o 'todas'
+  const hasPartidasProp = partidas !== undefined;
 
   useEffect(() => {
-    if (grupoId !== null && grupoId !== undefined) {
-      setGrupoIdSeleccionado(grupoId);
-    }
-  }, [grupoId]);
-
-  useEffect(() => {
+    let cancelled = false;
     Promise.all([authFetch('/api/grupos'), authFetch('/api/partidas/catalogo')])
       .then(async ([resGrupos, resCatalogo]) => {
+        if (cancelled) return;
         if (resGrupos.ok) setGrupos(await resGrupos.json());
         if (resCatalogo.ok) {
           const data = await resCatalogo.json();
+          if (cancelled) return;
           setEtapas(
             data
               .map((etapa) => ({
@@ -295,15 +363,45 @@ export default function LeaderboardTables({
         }
       })
       .catch((error) => console.error('Error al cargar catálogos de clasificación:', error));
+    return () => {
+      cancelled = true;
+    };
   }, [authFetch]);
 
-  const partidasFiltradas = grupoIdSeleccionado === 'global' ? partidas : (() => {
-    const grupo = grupos.find((item) => String(item.id) === String(grupoIdSeleccionado));
-    if (!grupo?.estudiantes) return [];
-    const ids = grupo.estudiantes.map((estudiante) => estudiante.id);
-    const correos = grupo.estudiantes.map((estudiante) => estudiante.correo?.toLowerCase());
-    return partidas.filter((partida) => ids.includes(partida.usuarioId) || correos.includes(partida.username?.toLowerCase()));
-  })();
+  useEffect(() => {
+    if (hasPartidasProp) return undefined;
+    let cancelled = false;
+    const cargarRanking = async () => {
+      try {
+        const query = grupoActivo !== 'global' ? `?grupoId=${encodeURIComponent(grupoActivo)}` : '';
+        const res = await authFetch(`/api/partidas/ranking${query}`);
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setRankingPartidas(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        console.error('Error al cargar ranking de partidas:', error);
+      }
+    };
+    cargarRanking();
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, hasPartidasProp, grupoActivo]);
+
+  const partidasFiltradas = !hasPartidasProp
+    ? rankingPartidas
+    : (grupoActivo === 'global' ? partidas : (() => {
+        const grupo = grupos.find((item) => String(item.id) === String(grupoActivo));
+        if (!grupo?.estudiantes) return [];
+        const ids = grupo.estudiantes.map((estudiante) => Number(estudiante.id));
+        const correos = grupo.estudiantes.map((estudiante) => estudiante.correo?.toLowerCase()).filter(Boolean);
+        return partidas.filter((partida) => (
+          (partida.usuarioId != null && ids.includes(Number(partida.usuarioId)))
+          || (partida.username && correos.includes(partida.username.toLowerCase()))
+          || (partida.usuario?.correo && correos.includes(partida.usuario.correo.toLowerCase()))
+        ));
+      })());
 
   const etapaSeleccionada = etapas.find((e) => String(e.id) === String(pestañaEtapa) || e.clave === pestañaEtapa);
 
@@ -311,7 +409,7 @@ export default function LeaderboardTables({
     <div className="space-y-6">
       {/* Barra de Filtro de Grupo y Selector de Etapas */}
       <div className="space-y-3 bg-surface-container-low/60 border border-primary/30 p-4 font-mono-label">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
           <div>
             <span className="text-primary font-bold text-[12px] uppercase flex items-center gap-2">
               <span className="material-symbols-outlined text-[16px]">filter_alt</span>
@@ -322,23 +420,50 @@ export default function LeaderboardTables({
             </p>
           </div>
 
-          {mostrarFiltro && (
-            <label className="flex items-center gap-2 text-[11px] text-on-surface-variant uppercase shrink-0">
-              <span>Grupo:</span>
-              <select
-                value={grupoIdSeleccionado}
-                onChange={(event) => setGrupoIdSeleccionado(event.target.value)}
-                className="bg-surface-container border border-primary/40 px-3 py-1.5 text-primary text-[11px] focus:outline-none"
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <div className="flex items-center border border-primary/40 bg-surface-container text-[10px] uppercase font-bold">
+              <button
+                type="button"
+                onClick={() => setSoloMejorPorAlumno(true)}
+                className={`px-2.5 py-1.5 transition-all cursor-pointer ${
+                  soloMejorPorAlumno
+                    ? 'bg-primary text-black'
+                    : 'text-primary hover:bg-primary/10'
+                }`}
               >
-                <option value="global">Clasificación Global</option>
-                {grupos.map((grupo) => (
-                  <option key={grupo.id} value={grupo.id}>
-                    {grupo.codigo} · {grupo.nombre || 'Sin nombre'}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+                Mejor por alumno
+              </button>
+              <button
+                type="button"
+                onClick={() => setSoloMejorPorAlumno(false)}
+                className={`px-2.5 py-1.5 transition-all cursor-pointer border-l border-primary/30 ${
+                  !soloMejorPorAlumno
+                    ? 'bg-primary text-black'
+                    : 'text-primary hover:bg-primary/10'
+                }`}
+              >
+                Todas las partidas
+              </button>
+            </div>
+
+            {mostrarFiltro && (
+              <label className="flex items-center gap-2 text-[11px] text-on-surface-variant uppercase shrink-0">
+                <span>Grupo:</span>
+                <select
+                  value={grupoActivo}
+                  onChange={(event) => setGrupoOverride({ base: grupoId, value: event.target.value })}
+                  className="bg-surface-container border border-primary/40 px-3 py-1.5 text-primary text-[11px] focus:outline-none"
+                >
+                  <option value="global">Clasificación Global</option>
+                  {grupos.map((grupo) => (
+                    <option key={grupo.id} value={grupo.id}>
+                      {grupo.codigo} · {grupo.nombre || 'Sin nombre'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
         </div>
 
         {/* Pestañas de Navegación por Etapa */}
@@ -393,18 +518,32 @@ export default function LeaderboardTables({
 
       {/* Renderizado según la pestaña de etapa seleccionada */}
       {pestañaEtapa === 'general' && (
-        <TablaGeneral etapas={etapas} partidas={partidasFiltradas} highlightUsername={highlightUsername} />
+        <TablaGeneral
+          etapas={etapas}
+          partidas={partidasFiltradas}
+          highlightUserId={highlightUserId}
+          highlightUsername={highlightUsername}
+          soloMejorPorAlumno={soloMejorPorAlumno}
+        />
       )}
 
       {pestañaEtapa === 'todas' && (
         <div className="grid grid-cols-1 gap-6">
-          <TablaGeneral etapas={etapas} partidas={partidasFiltradas} highlightUsername={highlightUsername} />
+          <TablaGeneral
+            etapas={etapas}
+            partidas={partidasFiltradas}
+            highlightUserId={highlightUserId}
+            highlightUsername={highlightUsername}
+            soloMejorPorAlumno={soloMejorPorAlumno}
+          />
           {etapas.map((etapa, index) => (
             <TablaEtapa
               key={etapa.id}
               etapa={etapa}
               partidas={partidasFiltradas}
+              highlightUserId={highlightUserId}
               highlightUsername={highlightUsername}
+              soloMejorPorAlumno={soloMejorPorAlumno}
               color={COLORES_ETAPA[index % COLORES_ETAPA.length]}
             />
           ))}
@@ -415,7 +554,9 @@ export default function LeaderboardTables({
         <TablaEtapa
           etapa={etapaSeleccionada}
           partidas={partidasFiltradas}
+          highlightUserId={highlightUserId}
           highlightUsername={highlightUsername}
+          soloMejorPorAlumno={soloMejorPorAlumno}
           color={COLORES_ETAPA[etapas.findIndex((e) => e.id === etapaSeleccionada.id) % COLORES_ETAPA.length]}
         />
       )}

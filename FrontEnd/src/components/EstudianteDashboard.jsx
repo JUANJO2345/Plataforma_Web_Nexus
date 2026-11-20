@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthStore';
 import LeaderboardTables from './LeaderboardTables';
-import { agruparResultadosPorEtapa, puntajeTotalPartida, formatearFechaCorta } from '../utils/partidas';
+import {
+  agruparResultadosPorEtapa,
+  puntajeTotalPartida,
+  formatearFechaCorta,
+  calcularEstadisticasGrupo
+} from '../utils/partidas';
 
 const COLORES_ETAPA = [
   { color: 'text-primary', border: 'border-primary/30', bg: 'bg-primary/10' },
@@ -14,7 +19,8 @@ export default function EstudianteDashboard() {
   const { user, authFetch } = useAuth();
   const [grupos, setGrupos] = useState([]);
   const [partidas, setPartidas] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [rankingPartidas, setRankingPartidas] = useState([]);
+  const [loading, setLoading] = useState(() => Boolean(user?.id));
   const [error, setError] = useState(null);
 
   // Pestaña principal: 'dashboard' (Mi propio dashboard) vs 'rankings' (Rankings por etapa y general)
@@ -25,34 +31,44 @@ export default function EstudianteDashboard() {
   const [partidaSeleccionadaId, setPartidaSeleccionadaId] = useState(null);
 
   useEffect(() => {
+    if (!user?.id) return undefined;
+
+    let cancelled = false;
     const fetchData = async () => {
       try {
-        setLoading(true);
-        const [resGrupos, resPartidas] = await Promise.all([
+        const [resGrupos, resPartidas, resRanking] = await Promise.all([
           authFetch(`/api/grupos?estudianteId=${user.id}`),
-          authFetch('/api/partidas')
+          authFetch('/api/partidas'),
+          authFetch('/api/partidas/ranking')
         ]);
 
-        if (!resGrupos.ok || !resPartidas.ok) {
+        if (!resGrupos.ok || !resPartidas.ok || !resRanking.ok) {
           throw new Error('Error al obtener datos del estudiante.');
         }
 
-        const dataGrupos = await resGrupos.json();
-        const dataPartidas = await resPartidas.json();
+        const [dataGrupos, dataPartidas, dataRanking] = await Promise.all([
+          resGrupos.json(),
+          resPartidas.json(),
+          resRanking.json()
+        ]);
 
-        setGrupos(dataGrupos);
-        setPartidas(dataPartidas);
+        if (cancelled) return;
+        setGrupos(Array.isArray(dataGrupos) ? dataGrupos : []);
+        setPartidas(Array.isArray(dataPartidas) ? dataPartidas : []);
+        setRankingPartidas(Array.isArray(dataRanking) ? dataRanking : []);
         setError(null);
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    if (user?.id) {
-      fetchData();
-    }
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, authFetch]);
 
   if (loading) {
@@ -73,7 +89,8 @@ export default function EstudianteDashboard() {
 
   // Partidas del usuario autenticado
   const misPartidas = partidas.filter(
-    (p) => p.usuarioId === user.id || p.username?.toLowerCase() === user.username?.toLowerCase()
+    (p) => (p.usuarioId != null && Number(p.usuarioId) === Number(user.id))
+      || (user.username && p.username?.toLowerCase() === user.username.toLowerCase())
   );
 
   const partidaActiva = misPartidas.length > 0
@@ -90,36 +107,22 @@ export default function EstudianteDashboard() {
     ? grupos.find((g) => String(g.id) === String(subTabDashboard))
     : null;
 
-  // Cálculos específicos para el grupo seleccionado
+  // Cálculos específicos para el grupo seleccionado usando rankingPartidas y helper unificado
   let estadisticasGrupo = null;
   if (grupoSeleccionado) {
     const compañeros = grupoSeleccionado.estudiantes || [];
-    const idsCompañeros = compañeros.map((c) => c.id);
-    const correosCompañeros = compañeros.map((c) => c.correo?.toLowerCase());
-
-    const partidasCompañeros = partidas.filter((p) =>
-      idsCompañeros.includes(p.usuarioId) || correosCompañeros.includes(p.username?.toLowerCase())
+    const stats = calcularEstadisticasGrupo(compañeros, rankingPartidas);
+    const miRegistro = stats.rankingEstudiantes.find(
+      (item) => Number(item.estudiante?.id) === Number(user.id)
+        || (user.username && item.estudiante?.correo?.toLowerCase() === user.username.toLowerCase())
     );
-
-    const puntajesEstudiantes = compañeros.map((est) => {
-      const pEst = partidas.filter((p) => p.usuarioId === est.id || p.username?.toLowerCase() === est.correo?.toLowerCase());
-      const maxScore = pEst.reduce((max, cur) => Math.max(max, puntajeTotalPartida(cur)), 0);
-      return { id: est.id, correo: est.correo, maxScore };
-    }).sort((a, b) => b.maxScore - a.maxScore);
-
-    const sumaPuntajes = puntajesEstudiantes.reduce((acc, curr) => acc + curr.maxScore, 0);
-    const promedioGrupo = puntajesEstudiantes.length > 0 ? Math.round(sumaPuntajes / puntajesEstudiantes.length) : 0;
-
-    const indicePosicion = puntajesEstudiantes.findIndex(
-      (item) => item.id === user.id || item.correo?.toLowerCase() === user.username?.toLowerCase()
-    );
-    const miPosicion = indicePosicion !== -1 ? indicePosicion + 1 : '—';
 
     estadisticasGrupo = {
-      totalCompañeros: compañeros.length,
-      promedioGrupo,
-      miPosicion,
-      totalPartidasGrupo: partidasCompañeros.length,
+      totalCompañeros: stats.totalEstudiantes,
+      promedioGrupo: stats.promedioGrupo,
+      miPosicion: miRegistro ? miRegistro.posicion : '—',
+      miMejorPuntaje: miRegistro ? miRegistro.mejorPuntaje : 0,
+      totalPartidasGrupo: stats.totalPartidasGrupo,
       compañeros
     };
   }
@@ -259,7 +262,7 @@ export default function EstudianteDashboard() {
                   <div className="border border-primary/30 bg-surface-container/50 p-4">
                     <div className="font-mono-label text-[10px] text-on-surface-variant uppercase">Mi Puntaje en el Grupo</div>
                     <div className="font-display text-[22px] text-primary font-bold mt-1">
-                      {totalGeneral} <span className="text-[12px]">pts</span>
+                      {estadisticasGrupo.miMejorPuntaje} <span className="text-[12px]">pts</span>
                     </div>
                     <div className="font-mono-label text-[10px] text-primary/60 mt-1 uppercase">&gt;&gt; MY_PERFORMANCE</div>
                   </div>
@@ -349,7 +352,7 @@ export default function EstudianteDashboard() {
                   <div className="border border-primary/30 bg-surface-container-low/40 p-4 backdrop-blur-md">
                     <div className="font-mono-label text-[10px] text-on-surface-variant uppercase">Estudiante</div>
                     <div className="font-display text-[18px] text-primary font-bold mt-1 truncate">
-                      {user.username.split('@')[0]}
+                      {user.nombre || user.username?.split('@')[0] || 'Estudiante'}
                     </div>
                     <div className="font-mono-label text-[10px] text-primary/60 mt-1 uppercase">&gt;&gt; OPERATOR</div>
                   </div>
@@ -544,7 +547,8 @@ export default function EstudianteDashboard() {
                     </h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       {estadisticasGrupo.compañeros.map((comp) => {
-                        const esYo = comp.id === user.id || comp.correo?.toLowerCase() === user.username?.toLowerCase();
+                        const esYo = Number(comp.id) === Number(user.id)
+                          || (user.username && comp.correo?.toLowerCase() === user.username.toLowerCase());
                         return (
                           <div
                             key={comp.id}
@@ -663,7 +667,8 @@ export default function EstudianteDashboard() {
 
           {/* Tablas de Ranking por Etapas y General */}
           <LeaderboardTables
-            partidas={partidas}
+            partidas={rankingPartidas}
+            highlightUserId={user.id}
             highlightUsername={user.username}
             grupoId="global"
             mostrarFiltro={true}
