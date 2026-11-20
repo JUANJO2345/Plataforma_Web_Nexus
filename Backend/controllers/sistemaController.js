@@ -1,4 +1,8 @@
+const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../middlewares/auth');
 const {
   sequelize,
   Usuario,
@@ -149,13 +153,20 @@ async function obtenerEstadoSistema(req, res) {
 
 async function reiniciarBaseDatos(req, res) {
   try {
-    const seedDemo = Boolean(req.body.seedDemo);
+    const { confirmacion, seedDemo: rawSeedDemo } = req.body || {};
+    const seedDemo = Boolean(rawSeedDemo);
 
-    // Obtener información del administrador actual para conservar sus credenciales de acceso
+    if (confirmacion !== 'REINICIAR') {
+      const msg = 'Confirmación inválida. Debes enviar confirmacion: "REINICIAR".';
+      return res.status(400).json({ error: msg, message: msg });
+    }
+
+    // Verificar administrador solicitante en base de datos antes de reiniciar
     const adminSolicitante = await Usuario.findByPk(req.usuario.id);
-    const adminNombre = adminSolicitante?.nombre || req.usuario.nombre || 'Administrador';
-    const adminCorreo = adminSolicitante?.correo || req.usuario.correo || 'admin@example.com';
-    const adminContrasenaHash = adminSolicitante?.contrasena || await bcrypt.hash('admin123', 10);
+    if (!adminSolicitante) {
+      const msg = 'Usuario administrador no encontrado en la base de datos.';
+      return res.status(401).json({ error: msg, message: msg });
+    }
 
     // Desactivar temporalmente foreign keys en SQLite y reiniciar esquemas
     await sequelize.query('PRAGMA foreign_keys = OFF;');
@@ -166,25 +177,12 @@ async function reiniciarBaseDatos(req, res) {
     await inicializarPartidas();
 
     // Recrear usuario administrador principal
-    await Usuario.create({
-      nombre: adminNombre,
-      correo: adminCorreo,
-      contrasena: adminContrasenaHash,
+    const nuevoAdmin = await Usuario.create({
+      nombre: adminSolicitante.nombre,
+      correo: adminSolicitante.correo,
+      contrasena: adminSolicitante.contrasena,
       rol: 'admin'
     });
-
-    // Si el correo del admin solicitante no es admin@example.com, asegurar que admin@example.com exista
-    if (adminCorreo.toLowerCase() !== 'admin@example.com') {
-      await Usuario.findOrCreate({
-        where: { correo: 'admin@example.com' },
-        defaults: {
-          nombre: 'Administrador',
-          correo: 'admin@example.com',
-          contrasena: await bcrypt.hash('admin123', 10),
-          rol: 'admin'
-        }
-      });
-    }
 
     if (seedDemo) {
       await cargarDatosDemo();
@@ -196,25 +194,199 @@ async function reiniciarBaseDatos(req, res) {
       Grupo.count()
     ]);
 
-    res.json({
+    const respuesta = {
       message: seedDemo
         ? 'Base de datos reiniciada y cargada con datos de prueba iniciales.'
         : 'Base de datos reiniciada con éxito. El sistema ha quedado completamente limpio y operativo.',
       seedAplicado: seedDemo,
-      adminConservado: adminCorreo,
+      adminConservado: nuevoAdmin.correo,
       metricas: {
         totalUsuarios,
         totalPartidas,
         totalGrupos
       }
-    });
+    };
+
+    if (Number(nuevoAdmin.id) !== Number(req.usuario.id)) {
+      respuesta.token = jwt.sign(
+        { id: nuevoAdmin.id, correo: nuevoAdmin.correo, rol: nuevoAdmin.rol },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      respuesta.adminId = nuevoAdmin.id;
+    }
+
+    res.json(respuesta);
   } catch (error) {
     console.error('Error al reiniciar base de datos:', error);
     res.status(500).json({ error: 'Error crítico al reiniciar base de datos', detalle: error.message });
   }
 }
 
+const BACKUPS_DIR = path.join(__dirname, '..', 'backups');
+
+function asegurarDirectorioBackups() {
+  if (!fs.existsSync(BACKUPS_DIR)) {
+    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+  }
+}
+
+function formatearTamano(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function crearBackupBak() {
+  asegurarDirectorioBackups();
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const nombreArchivo = `nexus_backup_${timestamp}.bak`;
+  const rutaArchivo = path.join(BACKUPS_DIR, nombreArchivo);
+
+  if (fs.existsSync(rutaArchivo)) {
+    fs.unlinkSync(rutaArchivo);
+  }
+
+  try {
+    await sequelize.query('PRAGMA wal_checkpoint(FULL);');
+  } catch (_) {
+    // Si no está en modo WAL, ignorar
+  }
+
+  let creadoConVacuum = false;
+  try {
+    const safePath = rutaArchivo.replace(/\\/g, '/');
+    await sequelize.query(`VACUUM INTO '${safePath}'`);
+    creadoConVacuum = true;
+  } catch (errorVacuum) {
+    console.warn('Aviso: Falló VACUUM INTO, usando copia directa de archivo:', errorVacuum.message);
+  }
+
+  if (!creadoConVacuum || !fs.existsSync(rutaArchivo)) {
+    const storagePath = sequelize.options.storage || path.join(__dirname, '..', 'database.sqlite');
+    await fs.promises.copyFile(storagePath, rutaArchivo);
+  }
+
+  const stat = fs.statSync(rutaArchivo);
+  return {
+    nombreArchivo,
+    rutaArchivo,
+    tamanoBytes: stat.size,
+    tamanoFormateado: formatearTamano(stat.size),
+    fechaCreacion: stat.mtime
+  };
+}
+
+async function crearBackup(req, res) {
+  try {
+    const backup = await crearBackupBak();
+    res.json({
+      message: 'Copia de seguridad (.bak) generada exitosamente.',
+      backup: {
+        nombreArchivo: backup.nombreArchivo,
+        tamanoBytes: backup.tamanoBytes,
+        tamanoFormateado: backup.tamanoFormateado,
+        fechaCreacion: backup.fechaCreacion
+      }
+    });
+  } catch (error) {
+    console.error('Error al crear backup (.bak):', error);
+    res.status(500).json({ error: 'Error al generar la copia de seguridad de la base de datos', detalle: error.message });
+  }
+}
+
+async function descargarBackupDirecto(req, res) {
+  try {
+    const backup = await crearBackupBak();
+    res.download(backup.rutaArchivo, backup.nombreArchivo, (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Error al transferir el archivo de backup', detalle: err.message });
+      }
+    });
+  } catch (error) {
+    console.error('Error al generar backup para descarga:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error al generar la copia de seguridad (.bak)', detalle: error.message });
+    }
+  }
+}
+
+async function listarBackups(req, res) {
+  try {
+    asegurarDirectorioBackups();
+    const archivos = fs.readdirSync(BACKUPS_DIR);
+    const backups = archivos
+      .filter((nombre) => nombre.endsWith('.bak'))
+      .map((nombre) => {
+        const ruta = path.join(BACKUPS_DIR, nombre);
+        const stat = fs.statSync(ruta);
+        return {
+          nombreArchivo: nombre,
+          tamanoBytes: stat.size,
+          tamanoFormateado: formatearTamano(stat.size),
+          fechaCreacion: stat.mtime
+        };
+      })
+      .sort((a, b) => new Date(b.fechaCreacion) - new Date(a.fechaCreacion));
+
+    res.json(backups);
+  } catch (error) {
+    console.error('Error al listar backups:', error);
+    res.status(500).json({ error: 'Error al consultar lista de backups', detalle: error.message });
+  }
+}
+
+async function descargarBackupPorNombre(req, res) {
+  try {
+    asegurarDirectorioBackups();
+    const nombreArchivo = path.basename(req.params.nombreArchivo);
+    const rutaArchivo = path.join(BACKUPS_DIR, nombreArchivo);
+
+    if (!fs.existsSync(rutaArchivo) || !nombreArchivo.endsWith('.bak')) {
+      return res.status(404).json({ error: 'El archivo de respaldo (.bak) solicitado no existe.' });
+    }
+
+    res.download(rutaArchivo, nombreArchivo, (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Error al transferir el archivo de respaldo', detalle: err.message });
+      }
+    });
+  } catch (error) {
+    console.error('Error al descargar backup por nombre:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error al procesar la descarga del respaldo', detalle: error.message });
+    }
+  }
+}
+
+async function eliminarBackup(req, res) {
+  try {
+    asegurarDirectorioBackups();
+    const nombreArchivo = path.basename(req.params.nombreArchivo);
+    const rutaArchivo = path.join(BACKUPS_DIR, nombreArchivo);
+
+    if (!fs.existsSync(rutaArchivo) || !nombreArchivo.endsWith('.bak')) {
+      return res.status(404).json({ error: 'El archivo de respaldo no existe.' });
+    }
+
+    fs.unlinkSync(rutaArchivo);
+    res.json({ message: `Copia de seguridad ${nombreArchivo} eliminada exitosamente.` });
+  } catch (error) {
+    console.error('Error al eliminar backup:', error);
+    res.status(500).json({ error: 'Error al eliminar el archivo de respaldo', detalle: error.message });
+  }
+}
+
 module.exports = {
   obtenerEstadoSistema,
-  reiniciarBaseDatos
+  reiniciarBaseDatos,
+  crearBackup,
+  descargarBackupDirecto,
+  listarBackups,
+  descargarBackupPorNombre,
+  eliminarBackup
 };

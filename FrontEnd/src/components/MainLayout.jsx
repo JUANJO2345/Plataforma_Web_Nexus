@@ -14,7 +14,7 @@ export default function MainLayout() {
     if (path.startsWith('/historial')) return 'MATCH_HISTORY';
     if (path.startsWith('/usuarios')) return 'GESTION_DE_USUARIOS';
     if (path.startsWith('/grupos')) return 'GESTION_DE_GRUPOS';
-    if (path.startsWith('/sistema')) return 'MANTENIMIENTO_DEL_SISTEMA';
+    if (path.startsWith('/sistema')) return 'ADMINISTRACION_DEL_SISTEMA';
     if (path.startsWith('/dashboard')) return 'OVERVIEW_DASHBOARD';
     return 'DASHBOARD';
   };
@@ -149,7 +149,7 @@ export default function MainLayout() {
                   to="/sistema"
                   className={navLinkClass('orange')}
                 >
-                  <span className="material-symbols-outlined text-[20px]">settings_backup_restore</span> Mantenimiento del Sistema
+                  <span className="material-symbols-outlined text-[20px]">settings_backup_restore</span> Administración del Sistema
                 </NavLink>
               </>
             )}
